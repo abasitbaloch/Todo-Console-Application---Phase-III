@@ -1,0 +1,46 @@
+# --- Node.js & Frontend ---
+node_modules/
+.next/
+out/
+build/
+.vercel
+*.tsbuildinfo
+
+# --- Python & Backend ---
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+ENV/
+env/
+# Removed the generic "lib/" that was causing your error
+# We only ignore lib folders inside virtual environments now
+*/venv/lib/
+*/.venv/lib/
+
+# --- Environment & Secrets (CRITICAL) ---
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
+
+# --- Databases & Logs ---
+*.db
+*.sqlite
+*.sqlite3
+*.log
+logs/
+
+# --- IDE & System ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Distribution / Packaging ---
+dist/
+build/
+*.egg-info/

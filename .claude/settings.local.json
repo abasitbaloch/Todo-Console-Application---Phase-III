@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash:*)",
+      "Bash(git config:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git fetch:*)",
+      "Bash(if [ -d specs ])",
+      "Bash(then ls -d specs/[0-9]*-todo-console-app)",
+      "Bash(fi)",
+      "Bash(powershell.exe -File .specify/scripts/powershell/create-new-feature.ps1 -Json -Number 1 -ShortName \"todo-console-app\" \"Phase I – In-Memory Todo Console Application\")",
+      "Bash(powershell.exe -File .specify/scripts/powershell/check-prerequisites.ps1 -Json)",
+      "Bash(powershell.exe:*)",
+      "Bash(python:*)",
+      "Bash(if:*)",
+      "Bash(then echo \"Script exists\")",
+      "Bash(else echo \"Script not found\")"
+    ]
+  }
+}

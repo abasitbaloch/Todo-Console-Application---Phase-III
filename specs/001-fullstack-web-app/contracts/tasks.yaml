@@ -1,0 +1,371 @@
+openapi: 3.0.3
+info:
+  title: Todo App - Tasks API
+  description: Task CRUD operations for authenticated users
+  version: 1.0.0
+  contact:
+    name: Phase II Full-Stack Web Application
+
+servers:
+  - url: http://localhost:8000
+    description: Development server
+
+tags:
+  - name: Tasks
+    description: Task management operations (Create, Read, Update, Delete, Mark Complete)
+
+security:
+  - BearerAuth: []
+
+paths:
+  /api/tasks:
+    get:
+      tags:
+        - Tasks
+      summary: Get all tasks for authenticated user
+      description: Retrieve all tasks owned by the authenticated user, ordered by creation date (newest first)
+      operationId: getTasks
+      responses:
+        '200':
+          description: Tasks retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TaskResponse'
+              examples:
+                withTasks:
+                  summary: User with tasks
+                  value:
+                    - id: 123e4567-e89b-12d3-a456-426614174000
+                      user_id: 550e8400-e29b-41d4-a716-446655440000
+                      title: Buy groceries
+                      description: Milk, eggs, bread
+                      is_completed: false
+                      created_at: '2026-01-07T14:30:00Z'
+                      updated_at: '2026-01-07T14:30:00Z'
+                    - id: 123e4567-e89b-12d3-a456-426614174001
+                      user_id: 550e8400-e29b-41d4-a716-446655440000
+                      title: Finish project report
+                      description: null
+                      is_completed: true
+                      created_at: '2026-01-07T10:00:00Z'
+                      updated_at: '2026-01-07T12:00:00Z'
+                emptyList:
+                  summary: User with no tasks
+                  value: []
+        '401':
+          description: Unauthorized (missing or invalid token)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    post:
+      tags:
+        - Tasks
+      summary: Create a new task
+      description: Create a new task for the authenticated user
+      operationId: createTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskCreate'
+            examples:
+              withDescription:
+                summary: Task with description
+                value:
+                  title: Buy groceries
+                  description: Milk, eggs, bread
+              withoutDescription:
+                summary: Task without description
+                value:
+                  title: Call dentist
+      responses:
+        '201':
+          description: Task created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+              examples:
+                success:
+                  summary: Created task
+                  value:
+                    id: 123e4567-e89b-12d3-a456-426614174000
+                    user_id: 550e8400-e29b-41d4-a716-446655440000
+                    title: Buy groceries
+                    description: Milk, eggs, bread
+                    is_completed: false
+                    created_at: '2026-01-07T14:30:00Z'
+                    updated_at: '2026-01-07T14:30:00Z'
+        '400':
+          description: Invalid input (empty title, title too long, description too long)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                emptyTitle:
+                  summary: Empty title
+                  value:
+                    detail: Title is required
+                titleTooLong:
+                  summary: Title exceeds 200 characters
+                  value:
+                    detail: Title must be 200 characters or less
+        '401':
+          description: Unauthorized (missing or invalid token)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/tasks/{task_id}:
+    get:
+      tags:
+        - Tasks
+      summary: Get a specific task
+      description: Retrieve a single task by ID (must be owned by authenticated user)
+      operationId: getTask
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Task UUID
+      responses:
+        '200':
+          description: Task retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        '401':
+          description: Unauthorized (missing or invalid token)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden (task belongs to another user)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                notAuthorized:
+                  summary: Task belongs to another user
+                  value:
+                    detail: Not authorized to access this task
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                notFound:
+                  summary: Task does not exist
+                  value:
+                    detail: Task not found
+
+    put:
+      tags:
+        - Tasks
+      summary: Update a task
+      description: Update task title, description, or completion status (must be owned by authenticated user)
+      operationId: updateTask
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Task UUID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskUpdate'
+            examples:
+              updateTitle:
+                summary: Update title only
+                value:
+                  title: Buy groceries and cook dinner
+              updateCompletion:
+                summary: Mark as complete
+                value:
+                  is_completed: true
+              updateAll:
+                summary: Update all fields
+                value:
+                  title: Buy groceries and cook dinner
+                  description: Updated shopping list
+                  is_completed: false
+      responses:
+        '200':
+          description: Task updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized (missing or invalid token)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden (task belongs to another user)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags:
+        - Tasks
+      summary: Delete a task
+      description: Permanently delete a task (must be owned by authenticated user)
+      operationId: deleteTask
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Task UUID
+      responses:
+        '204':
+          description: Task deleted successfully (no content)
+        '401':
+          description: Unauthorized (missing or invalid token)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden (task belongs to another user)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from /api/auth/login
+
+  schemas:
+    TaskCreate:
+      type: object
+      required:
+        - title
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: Buy groceries
+          description: Task title (required, 1-200 characters)
+        description:
+          type: string
+          maxLength: 2000
+          nullable: true
+          example: Milk, eggs, bread
+          description: Optional task description (max 2000 characters)
+
+    TaskUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: Buy groceries and cook dinner
+          description: Updated task title (optional)
+        description:
+          type: string
+          maxLength: 2000
+          nullable: true
+          example: Updated shopping list
+          description: Updated task description (optional)
+        is_completed:
+          type: boolean
+          example: true
+          description: Updated completion status (optional)
+
+    TaskResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 123e4567-e89b-12d3-a456-426614174000
+          description: Unique task identifier
+        user_id:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+          description: Owner user identifier
+        title:
+          type: string
+          example: Buy groceries
+          description: Task title
+        description:
+          type: string
+          nullable: true
+          example: Milk, eggs, bread
+          description: Task description (null if not provided)
+        is_completed:
+          type: boolean
+          example: false
+          description: Completion status
+        created_at:
+          type: string
+          format: date-time
+          example: '2026-01-07T14:30:00Z'
+          description: Task creation timestamp
+        updated_at:
+          type: string
+          format: date-time
+          example: '2026-01-07T14:30:00Z'
+          description: Last update timestamp
+
+    ErrorResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+          example: Task not found
+          description: Human-readable error message
