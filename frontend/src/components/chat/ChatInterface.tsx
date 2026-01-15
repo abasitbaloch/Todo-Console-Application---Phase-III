@@ -144,7 +144,7 @@ export default function ChatInterface() {
               <h2 className="text-2xl font-semibold mb-2">Welcome to AI Todo Assistant</h2>
               <p className="text-center max-w-md">
                 Start a conversation to manage your tasks with natural language.
-                Try saying "Add a task to buy groceries" or "Show me my tasks".
+                Try saying &quot;Add a task to buy groceries&quot; or &quot;Show me my tasks&quot;.
               </p>
             </div>
           ) : (
