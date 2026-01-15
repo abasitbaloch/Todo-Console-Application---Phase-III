@@ -1,20 +1,19 @@
-// backend/src/lib/client-auth.ts
+"use client";
+
 import { User, UserLogin, UserCreate, AuthResponse } from './types';
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://janabkakarot-todo-console-application.hf.space';
+// 1. Correct the fallback to your Phase 3 URL
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://janabkakarot-todo-console-application-phase-iii.hf.space';
 
-// frontend/src/lib/client-auth.ts
-
-// Change your getUrl function to this:
 const getUrl = (path: string) => {
-    const cleanBase = BASE_URL.replace('http://', 'https://').replace(/\/$/, '');
-    const cleanPath = path.startsWith('/') ? path : `/${path}`;
-    const finalPath = cleanPath.endsWith('/') ? cleanPath : `${cleanPath}/`;
-    return `${cleanBase}${finalPath}`;
+    const cleanBase = BASE_URL.replace(/\/$/, ''); // Remove trailing slash from base
+    const cleanPath = path.startsWith('/') ? path : `/${path}`; // Ensure path starts with /
+    return `${cleanBase}${cleanPath}`;
 };
 
 class AuthService {
-    private tokenKey = 'access_token';
+    // 2. Changed to auth_token to match your chat-api.ts
+    private tokenKey = 'auth_token';
 
     getToken(): string | null {
         if (typeof window === 'undefined') return null;
@@ -26,35 +25,69 @@ class AuthService {
         localStorage.setItem(this.tokenKey, token);
     }
 
+    // 3. Added missing isAuthenticated for your Layout
+    isAuthenticated(): boolean {
+        return !!this.getToken();
+    }
+
+    // 4. Added missing getCurrentUser for your Dashboard
+    async getCurrentUser(): Promise<User | null> {
+        const token = this.getToken();
+        if (!token) return null;
+
+        try {
+            const response = await fetch(getUrl('/api/users/me'), {
+                headers: { 'Authorization': `Bearer ${token}` },
+            });
+            if (!response.ok) throw new Error();
+            return await response.json();
+        } catch {
+            this.logout();
+            return null;
+        }
+    }
+
     logout() {
         if (typeof window === 'undefined') return;
         localStorage.removeItem(this.tokenKey);
+        localStorage.removeItem('user');
         window.location.href = '/login';
     }
 
     async login(data: UserLogin): Promise<AuthResponse> {
-        const response = await fetch(getUrl('/auth/login'), {
+        const response = await fetch(getUrl('/api/auth/login'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data),
         });
 
-        if (!response.ok) throw new Error('Login failed');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Login failed');
+        }
+        
         const result = await response.json();
         this.setToken(result.access_token);
+        // Save user info for the dashboard to use
+        localStorage.setItem('user', JSON.stringify(result.user));
         return result;
     }
 
     async register(data: UserCreate): Promise<AuthResponse> {
-        const response = await fetch(getUrl('/auth/register'), {
+        const response = await fetch(getUrl('/api/auth/register'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data),
         });
 
-        if (!response.ok) throw new Error('Registration failed');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Registration failed');
+        }
+
         const result = await response.json();
         this.setToken(result.access_token);
+        localStorage.setItem('user', JSON.stringify(result.user));
         return result;
     }
 }
