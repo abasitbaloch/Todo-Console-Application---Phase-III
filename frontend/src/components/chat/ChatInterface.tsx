@@ -142,10 +142,10 @@ export default function ChatInterface() {
             <div className="flex flex-col items-center justify-center h-full text-gray-500">
               <div className="text-6xl mb-4">💬</div>
               <h2 className="text-2xl font-semibold mb-2">Welcome to AI Todo Assistant</h2>
-              <p className="text-center max-w-md">
-                Start a conversation to manage your tasks with natural language.
-                Try saying &quot;Add a task to buy groceries&quot; or &quot;Show me my tasks&quot;.
-              </p>
+             <p className="text-center max-w-md">
+  Start a conversation to manage your tasks with natural language.
+  Try saying &quot;Add a task to buy groceries&quot; or &quot;Show me my tasks&quot;.
+</p>  
             </div>
           ) : (
             <>
