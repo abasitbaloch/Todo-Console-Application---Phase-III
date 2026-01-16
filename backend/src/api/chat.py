@@ -21,16 +21,13 @@ from ..errors.handlers import handle_chatbot_error, ConversationNotFoundError, I
 # Configure logging
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/chat", tags=["chat"])
+# REMOVED prefix="/chat" here because it is handled in main.py
+# This prevents the /api/chat/chat 404 error.
+router = APIRouter(tags=["chat"])
 
 
 class ChatRequest(BaseModel):
-    """Request model for chat endpoint.
-
-    Attributes:
-        conversation_id: Optional UUID of existing conversation (null for new)
-        message: User's message text
-    """
+    """Request model for chat endpoint."""
     conversation_id: Optional[UUID] = Field(None, description="Existing conversation ID or null for new conversation")
     message: str = Field(..., min_length=1, max_length=1000, description="User's message")
 
@@ -43,13 +40,7 @@ class ToolCall(BaseModel):
 
 
 class ChatResponse(BaseModel):
-    """Response model for chat endpoint.
-
-    Attributes:
-        conversation_id: UUID of the conversation
-        message: AI assistant's response
-        tool_calls: Optional list of tool calls made
-    """
+    """Response model for chat endpoint."""
     conversation_id: UUID
     message: str
     tool_calls: Optional[List[Dict[str, Any]]] = None
@@ -61,20 +52,9 @@ async def send_message(
     current_user: User = Depends(get_user_from_jwt),
     db: AsyncSession = Depends(get_session),
 ):
-    """Send a message to the AI chatbot.
-
-    Args:
-        request: Chat request with message and optional conversation_id
-        current_user: Authenticated user from JWT
-        db: Database session
-
-    Returns:
-        ChatResponse with AI assistant's reply
-
-    Raises:
-        HTTPException: 404 if conversation not found
-        HTTPException: 400 if message validation fails
-        HTTPException: 500 if AI processing fails
+    """
+    Send a message to the AI chatbot.
+    The URL for this will be: [BASE_URL]/api/chat/
     """
     start_time = time.time()
 
@@ -93,7 +73,7 @@ async def send_message(
         # Step 1: Get or create conversation
         conversation = None
         if request.conversation_id:
-            # Fetch existing conversation (with user isolation check)
+            # Fetch existing conversation
             conversation = await ConversationService.get_conversation(
                 db, request.conversation_id, current_user.id
             )
@@ -104,15 +84,15 @@ async def send_message(
             conversation = await ConversationService.create_conversation(
                 db, current_user.id
             )
-            logger.info(f"Created new conversation - id={conversation.id}, user_id={current_user.id}")
+            logger.info(f"Created new conversation - id={conversation.id}")
 
-        # Step 2: Fetch conversation history (last 50 messages)
+        # Step 2: Fetch conversation history
         history = await MessageService.get_messages_by_conversation(
             db, conversation.id, limit=50
         )
 
         # Step 3: Save user message
-        user_message = await MessageService.save_message(
+        await MessageService.save_message(
             db=db,
             conversation_id=conversation.id,
             role=MessageRole.USER,
@@ -128,7 +108,7 @@ async def send_message(
         )
 
         # Step 5: Save assistant message
-        assistant_message = await MessageService.save_message(
+        await MessageService.save_message(
             db=db,
             conversation_id=conversation.id,
             role=MessageRole.ASSISTANT,
@@ -144,12 +124,7 @@ async def send_message(
 
         # Log successful response
         response_time = time.time() - start_time
-        logger.info(
-            f"Chat response - user_id={current_user.id}, "
-            f"conversation_id={conversation.id}, "
-            f"response_time={response_time:.2f}s, "
-            f"tool_calls={len(agent_response.get('tool_calls', []))}"
-        )
+        logger.info(f"Chat success - response_time={response_time:.2f}s")
 
         # Step 7: Return response
         return ChatResponse(
@@ -160,23 +135,13 @@ async def send_message(
 
     except (ConversationNotFoundError, InvalidMessageError) as e:
         error_response = handle_chatbot_error(e)
-        logger.warning(
-            f"Chat error - user_id={current_user.id}, "
-            f"error_type={type(e).__name__}, "
-            f"message={str(e)}"
-        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND if isinstance(e, ConversationNotFoundError) else status.HTTP_400_BAD_REQUEST,
             detail=error_response["message"]
         )
     except Exception as e:
+        logger.error(f"Chat error: {str(e)}", exc_info=True)
         error_response = handle_chatbot_error(e)
-        logger.error(
-            f"Chat error - user_id={current_user.id}, "
-            f"error_type={type(e).__name__}, "
-            f"message={str(e)}",
-            exc_info=True
-        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=error_response["message"]
