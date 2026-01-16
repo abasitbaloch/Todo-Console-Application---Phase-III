@@ -4,10 +4,18 @@ import { User, UserLogin, UserCreate, AuthResponse } from './types';
 
 const BASE_URL = 'https://janabkakarot-todo-console-application-phase-iii.hf.space';
 
+/**
+ * Helper to ensure URLs match FastAPI expectations (trailing slashes)
+ */
 const getUrl = (path: string) => {
     const cleanBase = BASE_URL.replace(/\/$/, '');
     const cleanPath = path.startsWith('/') ? path : `/${path}`;
-    return `${cleanBase}${cleanPath}`;
+    
+    // Logic: FastAPI often expects a trailing slash before query params or at end
+    // This turns /api/auth/me into /api/auth/me/
+    const baseWithSlash = cleanPath.endsWith('/') ? cleanPath : `${cleanPath}/`;
+    
+    return `${cleanBase}${baseWithSlash}`;
 };
 
 class AuthService {
@@ -28,40 +36,39 @@ class AuthService {
     }
 
     async getCurrentUser(): Promise<User | null> {
-    const token = this.getToken();
-    if (!token) return null;
+        const token = this.getToken();
+        if (!token) return null;
 
-    try {
-        const response = await fetch(getUrl('/api/users/me'), {
-            headers: { 'Authorization': `Bearer ${token}` },
-        });
+        try {
+            // FIX: Changed /api/users/me to /api/auth/me/ to match backend logs
+            const response = await fetch(getUrl('/api/auth/me'), {
+                headers: { 'Authorization': `Bearer ${token}` },
+            });
 
-        // Only log out if the server explicitly says the token is invalid (401)
-        if (response.status === 401) {
-            console.warn("Session expired, logging out...");
-            this.logout();
+            // Only log out if the server explicitly says the token is invalid (401)
+            if (response.status === 401) {
+                console.warn("Session expired, logging out...");
+                this.logout();
+                return null;
+            }
+
+            if (!response.ok) {
+                console.error(`Auth check failed with status: ${response.status}`);
+                return null;
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error('Network error checking user:', error);
             return null;
         }
-
-        if (!response.ok) {
-            console.error("Server error during auth check, but keeping session alive.");
-            return null;
-        }
-
-        return await response.json();
-    } catch (error) {
-        // If the network fails (Hugging Face sleeping), DO NOT log out.
-        // Just return null so the page can try again or show a local user.
-        console.error('Network error checking user:', error);
-        return null;
     }
-}
 
     logout() {
         if (typeof window === 'undefined') return;
         localStorage.removeItem(this.tokenKey);
         localStorage.removeItem('user');
-        // FIX: Redirect to root '/' where your AuthForm is
+        // Redirect to root '/' where AuthForm is
         window.location.href = '/';
     }
 
