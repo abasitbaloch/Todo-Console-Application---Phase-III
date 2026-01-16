@@ -1,32 +1,28 @@
-"""MCP tools for task management operations."""
+"""MCP tools for task management operations - Optimized for Phase III."""
 
-from sqlmodel import Session, select
+from sqlmodel import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 from typing import Dict, Any, List, Optional
 from ..models.task import Task
 from difflib import SequenceMatcher
+from datetime import datetime
 
 
 async def add_task(
-    db: Session,
+    db: AsyncSession,
     user_id: UUID,
     title: str
 ) -> Dict[str, Any]:
-    """MCP tool: Create a new task.
-
-    Args:
-        db: Database session
-        user_id: UUID of the user creating the task
-        title: Task title
-
-    Returns:
-        Dictionary with success status and task details
-    """
+    """MCP tool: Create a new task for the AI."""
     try:
         task = Task(
             user_id=user_id,
             title=title,
-            is_completed=False
+            is_completed=False,
+            # FIX: Ensure AI-created tasks use Zulu/UTC time
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
         )
         db.add(task)
         await db.commit()
@@ -36,7 +32,8 @@ async def add_task(
             "success": True,
             "task_id": str(task.id),
             "title": task.title,
-            "is_completed": task.is_completed
+            "is_completed": task.is_completed,
+            "created_at": task.created_at.isoformat() + "Z"
         }
     except Exception as e:
         await db.rollback()
@@ -47,20 +44,11 @@ async def add_task(
 
 
 async def list_tasks(
-    db: Session,
+    db: AsyncSession,
     user_id: UUID,
     filter_completed: Optional[bool] = None
 ) -> Dict[str, Any]:
-    """MCP tool: List all tasks for a user.
-
-    Args:
-        db: Database session
-        user_id: UUID of the user
-        filter_completed: Optional filter for completion status
-
-    Returns:
-        Dictionary with success status and list of tasks
-    """
+    """MCP tool: List all tasks for a user."""
     try:
         statement = select(Task).where(Task.user_id == user_id)
 
@@ -79,7 +67,7 @@ async def list_tasks(
                     "id": str(task.id),
                     "title": task.title,
                     "is_completed": task.is_completed,
-                    "created_at": task.created_at.isoformat()
+                    "created_at": task.created_at.isoformat() + "Z"
                 }
                 for task in tasks
             ],
@@ -93,33 +81,16 @@ async def list_tasks(
 
 
 def fuzzy_match_task(task_title: str, search_string: str) -> float:
-    """Calculate fuzzy match score between task title and search string.
-
-    Args:
-        task_title: The task title to match against
-        search_string: The search string from user input
-
-    Returns:
-        Match score between 0.0 and 1.0
-    """
+    """Calculate fuzzy match score."""
     return SequenceMatcher(None, task_title.lower(), search_string.lower()).ratio()
 
 
 async def find_task_by_fuzzy_match(
-    db: Session,
+    db: AsyncSession,
     user_id: UUID,
     task_identifier: str
 ) -> Optional[Task]:
-    """Find a task using fuzzy matching on title.
-
-    Args:
-        db: Database session
-        user_id: UUID of the user
-        task_identifier: Partial or full task title
-
-    Returns:
-        Best matching Task or None if no good match found
-    """
+    """Find a task using fuzzy matching."""
     statement = select(Task).where(Task.user_id == user_id)
     result = await db.execute(statement)
     tasks = list(result.scalars().all())
@@ -127,7 +98,6 @@ async def find_task_by_fuzzy_match(
     if not tasks:
         return None
 
-    # Find best match
     best_match = None
     best_score = 0.0
 
@@ -137,38 +107,23 @@ async def find_task_by_fuzzy_match(
             best_score = score
             best_match = task
 
-    # Only return if match is reasonably good (>60% similarity)
-    if best_score > 0.6:
-        return best_match
-
-    return None
+    return best_match if best_score > 0.6 else None
 
 
 async def complete_task(
-    db: Session,
+    db: AsyncSession,
     user_id: UUID,
     task_identifier: str
 ) -> Dict[str, Any]:
-    """MCP tool: Mark a task as completed.
-
-    Args:
-        db: Database session
-        user_id: UUID of the user
-        task_identifier: Task title or partial title for fuzzy matching
-
-    Returns:
-        Dictionary with success status and task details
-    """
+    """MCP tool: Mark a task as completed."""
     try:
         task = await find_task_by_fuzzy_match(db, user_id, task_identifier)
 
         if not task:
-            return {
-                "success": False,
-                "error": f"Could not find task matching '{task_identifier}'. Try viewing your task list first."
-            }
+            return {"success": False, "error": f"Task '{task_identifier}' not found."}
 
         task.is_completed = True
+        task.updated_at = datetime.utcnow()
         db.add(task)
         await db.commit()
         await db.refresh(task)
@@ -181,97 +136,52 @@ async def complete_task(
         }
     except Exception as e:
         await db.rollback()
-        return {
-            "success": False,
-            "error": f"Failed to complete task: {str(e)}"
-        }
+        return {"success": False, "error": str(e)}
 
 
 async def update_task(
-    db: Session,
+    db: AsyncSession,
     user_id: UUID,
     task_identifier: str,
     new_title: str
 ) -> Dict[str, Any]:
-    """MCP tool: Update a task's title.
-
-    Args:
-        db: Database session
-        user_id: UUID of the user
-        task_identifier: Task title or partial title for fuzzy matching
-        new_title: New title for the task
-
-    Returns:
-        Dictionary with success status and task details
-    """
+    """MCP tool: Update title."""
     try:
         task = await find_task_by_fuzzy_match(db, user_id, task_identifier)
 
         if not task:
-            return {
-                "success": False,
-                "error": f"Could not find task matching '{task_identifier}'. Try viewing your task list first."
-            }
+            return {"success": False, "error": "Task not found."}
 
         old_title = task.title
         task.title = new_title
+        task.updated_at = datetime.utcnow()
         db.add(task)
         await db.commit()
         await db.refresh(task)
 
-        return {
-            "success": True,
-            "task_id": str(task.id),
-            "old_title": old_title,
-            "new_title": task.title
-        }
+        return {"success": True, "old_title": old_title, "new_title": task.title}
     except Exception as e:
         await db.rollback()
-        return {
-            "success": False,
-            "error": f"Failed to update task: {str(e)}"
-        }
+        return {"success": False, "error": str(e)}
 
 
 async def delete_task(
-    db: Session,
+    db: AsyncSession,
     user_id: UUID,
     task_identifier: str
 ) -> Dict[str, Any]:
-    """MCP tool: Delete a task permanently.
-
-    Args:
-        db: Database session
-        user_id: UUID of the user
-        task_identifier: Task title or partial title for fuzzy matching
-
-    Returns:
-        Dictionary with success status and deleted task details
-    """
+    """MCP tool: Delete a task."""
     try:
         task = await find_task_by_fuzzy_match(db, user_id, task_identifier)
 
         if not task:
-            return {
-                "success": False,
-                "error": f"Could not find task matching '{task_identifier}'. Try viewing your task list first."
-            }
+            return {"success": False, "error": "Task not found."}
 
         task_title = task.title
-        task_id = str(task.id)
-
         await db.delete(task)
         await db.commit()
 
-        return {
-            "success": True,
-            "task_id": task_id,
-            "title": task_title,
-            "message": f"Task '{task_title}' has been permanently deleted."
-        }
+        return {"success": True, "title": task_title}
     except Exception as e:
         await db.rollback()
-        return {
-            "success": False,
-            "error": f"Failed to delete task: {str(e)}"
-        }
+        return {"success": False, "error": str(e)}

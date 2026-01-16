@@ -1,4 +1,4 @@
-"""Task endpoints for CRUD operations."""
+"""Task endpoints for CRUD operations - Fixed with trailing slashes."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import select
@@ -12,8 +12,8 @@ from ..models import Task, User
 from ..schemas.task import TaskCreate, TaskUpdate, TaskResponse
 from ..api.deps import get_current_user
 
-# We keep the router clean; the prefix is handled in main.py
-router = APIRouter()
+# Router handled in main.py
+router = APIRouter(tags=["tasks"])
 
 @router.get("/", response_model=List[TaskResponse])
 async def get_all_tasks(
@@ -59,7 +59,7 @@ async def create_task(
     return TaskResponse.model_validate(new_task)
 
 
-@router.get("/{task_id}", response_model=TaskResponse)
+@router.get("/{task_id}/", response_model=TaskResponse)
 async def get_task(
     task_id: UUID,
     current_user: User = Depends(get_current_user),
@@ -80,7 +80,7 @@ async def get_task(
     return TaskResponse.model_validate(task)
 
 
-@router.put("/{task_id}", response_model=TaskResponse)
+@router.put("/{task_id}/", response_model=TaskResponse)
 async def update_task(
     task_id: UUID,
     task_data: TaskUpdate,
@@ -112,7 +112,7 @@ async def update_task(
     return TaskResponse.model_validate(task)
 
 
-@router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{task_id}/", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_task(
     task_id: UUID,
     current_user: User = Depends(get_current_user),
