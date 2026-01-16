@@ -1,6 +1,6 @@
 """
-Agent Orchestrator - Production Version
-Fixes: Tool Output Mapping, Fallbacks, and User Sync
+Agent Orchestrator - Phase III Final
+Fixes: Tool Result Mapping (400 Error), Fallbacks, and User Sync
 """
 
 import os
@@ -50,22 +50,33 @@ class AgentOrchestrator:
             function=lambda user_id, filter_completed=None: mcp_tools.list_tasks(self.db, user_id, filter_completed)
         )
 
+        server.register_tool(
+            name="delete_task",
+            description="Delete a task by title.",
+            parameters={
+                "type": "object",
+                "properties": {"task_identifier": {"type": "string"}},
+                "required": ["task_identifier"]
+            },
+            function=lambda task_identifier, user_id: mcp_tools.delete_task(self.db, user_id, task_identifier)
+        )
         return server
 
     def _build_messages(self, history: List[Message], new_message: str) -> List[Dict[str, Any]]:
         messages = [{"role": "system", "content": get_system_prompt()}]
         
-        # Only keep last 5 messages for token efficiency
-        for msg in history[-5:]:
-            msg_dict = {"role": msg.role.value, "content": msg.content or ""}
+        # Keep context small for free tier
+        for msg in history[-8:]:
+            # Core message
+            msg_dict = {"role": msg.role.value.lower(), "content": msg.content or ""}
             
-            # Reconstruct tool calls if they exist in history
+            # If there were tool calls, they MUST be included in the assistant's message
             if msg.tool_calls:
                 msg_dict["tool_calls"] = msg.tool_calls
             
             messages.append(msg_dict)
             
-            # Reconstruct tool results if they exist in history
+            # If there were tool results, they MUST follow immediately
             if msg.tool_results:
                 for result in msg.tool_results:
                     messages.append({
@@ -85,7 +96,6 @@ class AgentOrchestrator:
         max_retries: int = 2
     ) -> Dict[str, Any]:
         
-        # Priority list of free models
         models = [
             os.getenv("CHAT_MODEL", "google/gemini-2.0-flash-exp:free"),
             "deepseek/deepseek-chat:free",
@@ -97,25 +107,23 @@ class AgentOrchestrator:
             try:
                 messages = self._build_messages(conversation_history, new_message)
 
-                # API Call 1
+                # Step 1: Get AI Response (may contain tool calls)
                 response = await self.client.chat.completions.create(
                     model=model,
                     messages=messages,
                     tools=self.mcp_server.get_tool_definitions(),
                     tool_choice="auto",
-                    max_tokens=500,
-                    extra_headers={"HTTP-Referer": "https://vercel.app", "X-Title": "Todo AI"}
+                    max_tokens=500
                 )
 
                 assistant_msg = response.choices[0].message
                 
                 if assistant_msg.tool_calls:
-                    # Capture the assistant's request for tool calls
+                    # MUST append assistant message with tool_calls before the tool outputs
                     messages.append(assistant_msg)
                     
-                    tool_calls_summary = []
-                    tool_results_summary = []
-
+                    tool_results_for_db = []
+                    
                     for tool_call in assistant_msg.tool_calls:
                         name = tool_call.function.name
                         try:
@@ -124,29 +132,24 @@ class AgentOrchestrator:
                         except:
                             continue
                         
-                        # Execute the logic
+                        # Execute logic
                         result = await self.mcp_server.execute_tool(name, args)
 
                         # Create the correct tool-role message for the API
-                        tool_result_msg = {
+                        tool_msg = {
                             "role": "tool",
                             "tool_call_id": tool_call.id,
                             "content": json.dumps(result)
                         }
-                        messages.append(tool_result_msg)
+                        messages.append(tool_msg)
 
-                        # Save for database storage
-                        tool_calls_summary.append({
-                            "id": tool_call.id,
-                            "type": "function",
-                            "function": {"name": name, "arguments": tool_call.function.arguments}
-                        })
-                        tool_results_summary.append({
+                        # Format for DB storage
+                        tool_results_for_db.append({
                             "tool_call_id": tool_call.id,
                             "content": result
                         })
 
-                    # Final API call to summarize results
+                    # Step 2: Final call with results
                     final_resp = await self.client.chat.completions.create(
                         model=model,
                         messages=messages,
@@ -155,16 +158,16 @@ class AgentOrchestrator:
 
                     return {
                         "content": final_resp.choices[0].message.content,
-                        "tool_calls": tool_calls_data if 'tool_calls_data' in locals() else tool_calls_summary,
-                        "tool_results": tool_results_data if 'tool_results_data' in locals() else tool_results_summary
+                        "tool_calls": [tc.model_dump() for tc in assistant_msg.tool_calls],
+                        "tool_results": tool_results_for_db
                     }
 
                 return {"content": assistant_msg.content, "tool_calls": None, "tool_results": None}
 
             except Exception as e:
                 last_error = e
-                logger.warning(f"Model {model} failed. Error: {str(e)}")
+                logger.error(f"Error with model {model}: {str(e)}")
                 await asyncio.sleep(1)
                 continue
 
-        raise OpenAIAPIError(message=f"AI busy or tool error: {str(last_error)}", status_code=500)
+        raise OpenAIAPIError(message=f"AI Error: {str(last_error)}", status_code=500)
