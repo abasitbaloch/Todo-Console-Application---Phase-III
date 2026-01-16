@@ -1,6 +1,6 @@
 /**
- * Unified API Client - Final Production Version
- * Fixes: Timezone (UTC), 307 Redirects, and Task Toggle Logic
+ * Unified API Client - Phase III Final
+ * Fixes: Manual Task Creation, Bot Sync, Timezones, and 307 Redirects
  */
 import { ChatRequest, ChatResponse, Conversation, ConversationDetail } from "@/types/chat";
 
@@ -12,108 +12,126 @@ function getAuthToken(): string | null {
 }
 
 /**
- * Smart URL builder to satisfy FastAPI's strict trailing slash requirements
+ * Smart URL builder to satisfy FastAPI's strict trailing slash requirements.
+ * This prevents 307 Redirects which cause data loss on POST/PUT requests.
  */
 const getUrl = (path: string) => {
   const cleanBase = API_BASE_URL.replace(/\/$/, "");
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
 
-  // Fix for Time/Sidebar: Ensure slash is BEFORE the query string
+  // Handle Query Parameters
   if (cleanPath.includes('?')) {
     const [route, query] = cleanPath.split('?');
     const routeWithSlash = route.endsWith('/') ? route : `${route}/`;
     return `${cleanBase}${routeWithSlash}?${query}`;
   }
 
-  // Handle Chat POST (No trailing slash usually preferred for specific POST routes)
+  // Handle Chat POST
   if (cleanPath === '/api/chat') {
     return `${cleanBase}${cleanPath}`; 
   }
 
-  // Default: Always enforce trailing slash to avoid 307 Redirects
+  // Default: Always add trailing slash
   return `${cleanBase}${cleanPath.endsWith('/') ? cleanPath : cleanPath + '/'}`;
 };
 
-/**
- * 1. FIX: Task Toggle (The Checkbox)
- * This must use a PUT request and a perfectly formatted URL.
- */
-export async function updateTaskStatus(taskId: string, completed: boolean) {
-  const token = getAuthToken();
-  
-  // Explicitly ensuring the slash is after the ID: /tasks/ID/
-  const url = getUrl(`/tasks/${taskId}`); 
-
-  const response = await fetch(url, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${token}`
-    },
-    body: JSON.stringify({ is_completed: completed })
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || "Failed to update task.");
-  }
-
-  return await response.json();
-}
-
-/**
- * 2. FIX: Chat Messages
- */
-export async function sendMessage(request: ChatRequest): Promise<ChatResponse> {
-  const token = getAuthToken();
-  const response = await fetch(getUrl('/api/chat'), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${token}`
-    },
-    body: JSON.stringify(request)
-  });
-
-  if (!response.ok) throw new Error("AI is busy or server error.");
-  return response.json();
-}
-
-/**
- * 3. FIX: Sidebar Time (List Conversations)
- */
-export async function listConversations(limit: number = 20, offset: number = 0): Promise<Conversation[]> {
-  const token = getAuthToken();
-  if (!token) return [];
-
-  const response = await fetch(getUrl(`/api/conversations?limit=${limit}&offset=${offset}`), {
-    method: "GET",
-    headers: { "Authorization": `Bearer ${token}` }
-  });
-
-  if (!response.ok) return [];
-  
-  const data = await response.json();
-  
+export const api = {
   /**
-   * IMPORTANT: The "5 hours ago" fix.
-   * We ensure the string is treated as a Date object so the browser
-   * converts UTC (from backend) to your local Karachi time.
+   * TASK OPERATIONS
    */
-  return data.map((conv: any) => ({
-    ...conv,
-    // Ensure we parse the string properly
-    updated_at: new Date(conv.updated_at).toISOString() 
-  }));
-}
+  async getTasks() {
+    const token = getAuthToken();
+    const response = await fetch(getUrl('/tasks'), {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    if (!response.ok) return [];
+    return response.json();
+  },
 
-export async function getConversation(conversationId: string): Promise<ConversationDetail> {
-  const token = getAuthToken();
-  const response = await fetch(getUrl(`/api/conversations/${conversationId}`), {
-    method: "GET",
-    headers: { "Authorization": `Bearer ${token}` }
-  });
+  async createTask(title: string, description: string = "") {
+    const token = getAuthToken();
+    const response = await fetch(getUrl('/tasks'), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify({ title, description })
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || "Failed to create task");
+    }
+    return response.json();
+  },
 
-  if (!response.ok) throw new Error("Failed to load history.");
-  return response.json();
-}
+  async updateTask(taskId: string, updates: { is_completed?: boolean; title?: string; description?: string }) {
+    const token = getAuthToken();
+    const response = await fetch(getUrl(`/tasks/${taskId}`), {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify(updates)
+    });
+    if (!response.ok) throw new Error("Failed to update task");
+    return response.json();
+  },
+
+  async deleteTask(taskId: string) {
+    const token = getAuthToken();
+    const response = await fetch(getUrl(`/tasks/${taskId}`), {
+      method: "DELETE",
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    if (!response.ok) throw new Error("Failed to delete task");
+    return true;
+  },
+
+  /**
+   * CHAT OPERATIONS
+   */
+  async sendMessage(request: ChatRequest): Promise<ChatResponse> {
+    const token = getAuthToken();
+    const response = await fetch(getUrl('/api/chat'), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify(request)
+    });
+    if (!response.ok) throw new Error("AI is busy or server error.");
+    return response.json();
+  },
+
+  async listConversations(limit: number = 20, offset: number = 0): Promise<Conversation[]> {
+    const token = getAuthToken();
+    if (!token) return [];
+    const response = await fetch(getUrl(`/api/conversations?limit=${limit}&offset=${offset}`), {
+      method: "GET",
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    if (!response.ok) return [];
+    const data = await response.json();
+    return data.map((conv: any) => ({
+      ...conv,
+      updated_at: new Date(conv.updated_at).toISOString() 
+    }));
+  },
+
+  async getConversation(conversationId: string): Promise<ConversationDetail> {
+    const token = getAuthToken();
+    const response = await fetch(getUrl(`/api/conversations/${conversationId}`), {
+      method: "GET",
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    if (!response.ok) throw new Error("Failed to load history.");
+    return response.json();
+  }
+};
+
+// Explicit exports for your ChatInterface
+export const sendMessage = api.sendMessage;
+export const getConversation = api.getConversation;
