@@ -15,12 +15,20 @@ function getAuthToken(): string | null {
 }
 
 /**
- * Helper to ensure no double slashes in URLs
+ * Helper to ensure no double slashes and FORCE trailing slashes
+ * FastAPI often requires the trailing / to avoid 404s
  */
 const getUrl = (path: string) => {
   const cleanBase = API_BASE_URL.replace(/\/$/, ""); 
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
-  return `${cleanBase}${cleanPath}`;
+  
+  // Logic: Ensure the path ends with a slash before adding query parameters
+  // This turns '/api/chat' into '/api/chat/'
+  const baseWithSlash = cleanPath.includes('?') 
+    ? cleanPath.replace('?', '/?') 
+    : cleanPath.endsWith('/') ? cleanPath : `${cleanPath}/`;
+    
+  return `${cleanBase}${baseWithSlash}`;
 };
 
 /**
@@ -33,6 +41,7 @@ export async function sendMessage(request: ChatRequest): Promise<ChatResponse> {
     throw new Error("Not authenticated. Please log in.");
   }
 
+  // This will now call https://.../api/chat/
   const response = await fetch(getUrl('/api/chat'), {
     method: "POST",
     headers: {
@@ -43,7 +52,8 @@ export async function sendMessage(request: ChatRequest): Promise<ChatResponse> {
   });
 
   if (!response.ok) {
-    const error = await response.json();
+    // If we get a 404 here, it means the /api/chat/ route literally doesn't exist on the backend
+    const error = await response.json().catch(() => ({ detail: "Route not found on server" }));
     throw new Error(error.detail || "Failed to send message");
   }
 
@@ -55,23 +65,14 @@ export async function sendMessage(request: ChatRequest): Promise<ChatResponse> {
  */
 export async function listConversations(limit: number = 20, offset: number = 0): Promise<Conversation[]> {
   const token = getAuthToken();
-
-  if (!token) {
-    throw new Error("Not authenticated. Please log in.");
-  }
+  if (!token) throw new Error("Not authenticated.");
 
   const response = await fetch(getUrl(`/api/conversations?limit=${limit}&offset=${offset}`), {
     method: "GET",
-    headers: {
-      "Authorization": `Bearer ${token}`
-    }
+    headers: { "Authorization": `Bearer ${token}` }
   });
 
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to fetch conversations");
-  }
-
+  if (!response.ok) throw new Error("Failed to fetch conversations");
   return response.json();
 }
 
@@ -80,22 +81,13 @@ export async function listConversations(limit: number = 20, offset: number = 0):
  */
 export async function getConversation(conversationId: string): Promise<ConversationDetail> {
   const token = getAuthToken();
-
-  if (!token) {
-    throw new Error("Not authenticated. Please log in.");
-  }
+  if (!token) throw new Error("Not authenticated.");
 
   const response = await fetch(getUrl(`/api/conversations/${conversationId}`), {
     method: "GET",
-    headers: {
-      "Authorization": `Bearer ${token}`
-    }
+    headers: { "Authorization": `Bearer ${token}` }
   });
 
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to fetch conversation");
-  }
-
+  if (!response.ok) throw new Error("Failed to fetch conversation");
   return response.json();
 }
