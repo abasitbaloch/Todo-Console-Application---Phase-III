@@ -12,26 +12,16 @@ from ..schemas.user import UserCreate, UserLogin, UserResponse, TokenResponse
 from ..api.deps import get_current_user
 
 
-router = APIRouter()
+# We leave the prefix empty here so main.py handles it
+router = APIRouter(tags=["auth"])
 
 
-@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register/", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 async def register(
     user_data: UserCreate,
     db: AsyncSession = Depends(get_session),
 ):
-    """Register a new user account.
-
-    Args:
-        user_data: User registration data (email and password)
-        db: Database session
-
-    Returns:
-        TokenResponse with access token and user data
-
-    Raises:
-        HTTPException: 400 if email already exists
-    """
+    """Register a new user account."""
     # Check if email already exists (case-insensitive)
     result = await db.execute(
         select(User).where(User.email == user_data.email.lower())
@@ -44,19 +34,14 @@ async def register(
             detail="Email already registered"
         )
 
-    # Validate password strength (minimum 8 chars, at least one letter and one number)
+    # Validate password strength
     password = user_data.password
     if len(password) < 8:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Password must be at least 8 characters long"
         )
-    if not any(c.isalpha() for c in password) or not any(c.isdigit() for c in password):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Password must contain at least one letter and one number"
-        )
-
+    
     # Create new user
     hashed_password = get_password_hash(password)
     new_user = User(
@@ -80,24 +65,13 @@ async def register(
     )
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login/", response_model=TokenResponse)
 async def login(
     credentials: UserLogin,
     db: AsyncSession = Depends(get_session),
 ):
-    """Authenticate user and return JWT token.
-
-    Args:
-        credentials: User login credentials (email and password)
-        db: Database session
-
-    Returns:
-        TokenResponse with access token and user data
-
-    Raises:
-        HTTPException: 401 if credentials are invalid
-    """
-    # Find user by email (case-insensitive)
+    """Authenticate user and return JWT token."""
+    # Find user by email
     result = await db.execute(
         select(User).where(User.email == credentials.email.lower())
     )
@@ -121,16 +95,9 @@ async def login(
     )
 
 
-@router.get("/me", response_model=UserResponse)
+@router.get("/me/", response_model=UserResponse)
 async def get_current_user_info(
     current_user: User = Depends(get_current_user),
 ):
-    """Get current authenticated user information.
-
-    Args:
-        current_user: The authenticated user from JWT token
-
-    Returns:
-        UserResponse with current user data
-    """
+    """Get current authenticated user information."""
     return UserResponse.model_validate(current_user)

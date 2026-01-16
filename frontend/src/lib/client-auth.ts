@@ -5,14 +5,14 @@ import { User, UserLogin, UserCreate, AuthResponse } from './types';
 const BASE_URL = 'https://janabkakarot-todo-console-application-phase-iii.hf.space';
 
 /**
- * Helper to ensure URLs match FastAPI expectations (trailing slashes)
+ * Helper to ensure URLs match FastAPI expectations (ALWAYS trailing slashes)
  */
 const getUrl = (path: string) => {
     const cleanBase = BASE_URL.replace(/\/$/, '');
     const cleanPath = path.startsWith('/') ? path : `/${path}`;
     
-    // Logic: FastAPI often expects a trailing slash before query params or at end
-    // This turns /api/auth/me into /api/auth/me/
+    // Enforce trailing slash to match the new backend auth.py decorators
+    // This turns /api/auth/login into /api/auth/login/
     const baseWithSlash = cleanPath.endsWith('/') ? cleanPath : `${cleanPath}/`;
     
     return `${cleanBase}${baseWithSlash}`;
@@ -40,12 +40,11 @@ class AuthService {
         if (!token) return null;
 
         try {
-            // FIX: Changed /api/users/me to /api/auth/me/ to match backend logs
+            // Hits: /api/auth/me/
             const response = await fetch(getUrl('/api/auth/me'), {
                 headers: { 'Authorization': `Bearer ${token}` },
             });
 
-            // Only log out if the server explicitly says the token is invalid (401)
             if (response.status === 401) {
                 console.warn("Session expired, logging out...");
                 this.logout();
@@ -68,11 +67,11 @@ class AuthService {
         if (typeof window === 'undefined') return;
         localStorage.removeItem(this.tokenKey);
         localStorage.removeItem('user');
-        // Redirect to root '/' where AuthForm is
         window.location.href = '/';
     }
 
     async login(data: UserLogin): Promise<AuthResponse> {
+        // Hits: /api/auth/login/
         const response = await fetch(getUrl('/api/auth/login'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -91,6 +90,7 @@ class AuthService {
     }
 
     async register(data: UserCreate): Promise<AuthResponse> {
+        // Hits: /api/auth/register/
         const response = await fetch(getUrl('/api/auth/register'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
