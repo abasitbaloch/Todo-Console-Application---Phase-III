@@ -1,10 +1,10 @@
 /**
- * Chat API client for communicating with backend
+ * Chat API client for communicating with Phase-III backend
  */
-
 import { ChatRequest, ChatResponse, Conversation, ConversationDetail } from "@/types/chat";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// FIX: Point directly to your Phase-III Hugging Face Space
+const API_BASE_URL = "https://janabkakarot-todo-console-application-phase-iii.hf.space";
 
 /**
  * Get JWT token from localStorage
@@ -13,6 +13,15 @@ function getAuthToken(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("auth_token");
 }
+
+/**
+ * Helper to ensure no double slashes in URLs
+ */
+const getUrl = (path: string) => {
+  const cleanBase = API_BASE_URL.replace(/\/$/, ""); 
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${cleanBase}${cleanPath}`;
+};
 
 /**
  * Send a message to the AI chatbot
@@ -24,7 +33,7 @@ export async function sendMessage(request: ChatRequest): Promise<ChatResponse> {
     throw new Error("Not authenticated. Please log in.");
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/chat`, {
+  const response = await fetch(getUrl('/api/chat'), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -51,7 +60,7 @@ export async function listConversations(limit: number = 20, offset: number = 0):
     throw new Error("Not authenticated. Please log in.");
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/conversations?limit=${limit}&offset=${offset}`, {
+  const response = await fetch(getUrl(`/api/conversations?limit=${limit}&offset=${offset}`), {
     method: "GET",
     headers: {
       "Authorization": `Bearer ${token}`
@@ -76,7 +85,7 @@ export async function getConversation(conversationId: string): Promise<Conversat
     throw new Error("Not authenticated. Please log in.");
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/conversations/${conversationId}`, {
+  const response = await fetch(getUrl(`/api/conversations/${conversationId}`), {
     method: "GET",
     headers: {
       "Authorization": `Bearer ${token}`
