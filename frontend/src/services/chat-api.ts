@@ -1,10 +1,10 @@
 /**
- * Chat API client - Professional Production Version
- * Fixes: Mixed Content (HTTPS), 307 Redirects, and Pagination Paths
+ * Chat API client - Final Production Version
+ * Fixes: Mixed Content, 307 Redirects, and Graceful 429/500 Error Handling
  */
 import { ChatRequest, ChatResponse, Conversation, ConversationDetail } from "@/types/chat";
 
-// FORCE HTTPS to stop the "Mixed Content" error in Chrome
+// FORCE HTTPS to prevent browser "Mixed Content" blocks
 const API_BASE_URL = "https://janabkakarot-todo-console-application-phase-iii.hf.space";
 
 function getAuthToken(): string | null {
@@ -13,57 +13,63 @@ function getAuthToken(): string | null {
 }
 
 /**
- * Smart URL builder to match FastAPI routing perfectly
+ * Smart URL builder to satisfy FastAPI's strict trailing slash requirements
  */
 const getUrl = (path: string) => {
   const cleanBase = API_BASE_URL.replace(/\/$/, "");
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
 
-  // Logic for Query Parameters (Conversations List)
+  // Handle Query Parameters (e.g., /api/conversations/?limit=20)
   if (cleanPath.includes('?')) {
-    // Splits /api/conversations?limit=20 into path and query
     const [route, query] = cleanPath.split('?');
-    // Ensures path has a slash BEFORE the ? (e.g., /api/conversations/?)
     const routeWithSlash = route.endsWith('/') ? route : `${route}/`;
     return `${cleanBase}${routeWithSlash}?${query}`;
   }
 
-  // Logic for POST /api/chat
-  // We match exactly what is in your chat.py @router.post("")
+  // Handle Chat POST (Match backend chat.py @router.post(""))
   if (cleanPath === '/api/chat') {
     return `${cleanBase}${cleanPath}`; 
   }
 
-  // Logic for GET /api/conversations/{id}/
+  // Default: Add trailing slash for GET requests
   return `${cleanBase}${cleanPath.endsWith('/') ? cleanPath : cleanPath + '/'}`;
 };
 
 /**
- * Send a message - No trailing slash to match chat.py @router.post("")
+ * Send a message - Robust error handling for Free Tier Rate Limits
  */
 export async function sendMessage(request: ChatRequest): Promise<ChatResponse> {
   const token = getAuthToken();
-  if (!token) throw new Error("Not authenticated.");
+  if (!token) throw new Error("Please log in to chat.");
 
-  const response = await fetch(getUrl('/api/chat'), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${token}`
-    },
-    body: JSON.stringify(request)
-  });
+  try {
+    const response = await fetch(getUrl('/api/chat'), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify(request)
+    });
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || "Chat failed. See backend logs.");
+    if (response.status === 429) {
+      throw new Error("The AI is currently busy (Free Tier limit). Please wait 30 seconds and try again.");
+    }
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.detail || "The AI encountered an error. Please try a shorter message.");
+    }
+
+    return await response.json();
+  } catch (error: any) {
+    // Catch network errors or the thrown errors above
+    throw new Error(error.message || "Could not connect to the AI server.");
   }
-
-  return response.json();
 }
 
 /**
- * List conversations - Ensures slash before query params
+ * List conversations - Silent fail (returns empty array) on error
  */
 export async function listConversations(limit: number = 20, offset: number = 0): Promise<Conversation[]> {
   const token = getAuthToken();
@@ -76,7 +82,7 @@ export async function listConversations(limit: number = 20, offset: number = 0):
     });
 
     if (!response.ok) return [];
-    return response.json();
+    return await response.json();
   } catch (err) {
     console.error("Sidebar load failed:", err);
     return [];
@@ -84,17 +90,17 @@ export async function listConversations(limit: number = 20, offset: number = 0):
 }
 
 /**
- * Get conversation detail
+ * Get conversation history
  */
 export async function getConversation(conversationId: string): Promise<ConversationDetail> {
   const token = getAuthToken();
-  if (!token) throw new Error("Not authenticated.");
+  if (!token) throw new Error("Session expired.");
 
   const response = await fetch(getUrl(`/api/conversations/${conversationId}`), {
     method: "GET",
     headers: { "Authorization": `Bearer ${token}` }
   });
 
-  if (!response.ok) throw new Error("Failed to fetch conversation history");
-  return response.json();
+  if (!response.ok) throw new Error("Failed to load chat history.");
+  return await response.json();
 }
