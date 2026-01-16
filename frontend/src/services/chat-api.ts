@@ -1,5 +1,5 @@
 /**
- * Chat API client - Fixed to match backend route structure
+ * Chat API client - Fixed to match Backend main.py prefixes
  */
 import { ChatRequest, ChatResponse, Conversation, ConversationDetail } from "@/types/chat";
 
@@ -23,14 +23,14 @@ const getUrl = (path: string) => {
 };
 
 /**
- * Send a message - REMOVED /api prefix
+ * Send a message - ADDED /api prefix back
  */
 export async function sendMessage(request: ChatRequest): Promise<ChatResponse> {
   const token = getAuthToken();
   if (!token) throw new Error("Not authenticated.");
 
-  // CHANGED: /api/chat -> /chat
-  const response = await fetch(getUrl('/chat'), {
+  // This calls https://.../api/chat/
+  const response = await fetch(getUrl('/api/chat'), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -40,22 +40,21 @@ export async function sendMessage(request: ChatRequest): Promise<ChatResponse> {
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: "Chat route not found" }));
-    throw new Error(error.detail || "Failed to send message");
+    throw new Error("Chat failed. Check if backend is awake.");
   }
 
   return response.json();
 }
 
 /**
- * List conversations - REMOVED /api prefix
+ * List conversations - ADDED /api prefix back
  */
 export async function listConversations(limit: number = 20, offset: number = 0): Promise<Conversation[]> {
   const token = getAuthToken();
   if (!token) throw new Error("Not authenticated.");
 
-  // CHANGED: /api/conversations -> /conversations
-  const response = await fetch(getUrl(`/conversations?limit=${limit}&offset=${offset}`), {
+  // This calls https://.../api/conversations/
+  const response = await fetch(getUrl(`/api/conversations?limit=${limit}&offset=${offset}`), {
     method: "GET",
     headers: { "Authorization": `Bearer ${token}` }
   });
@@ -65,14 +64,14 @@ export async function listConversations(limit: number = 20, offset: number = 0):
 }
 
 /**
- * Get conversation detail - REMOVED /api prefix
+ * Get conversation detail - ADDED /api prefix back
  */
 export async function getConversation(conversationId: string): Promise<ConversationDetail> {
   const token = getAuthToken();
   if (!token) throw new Error("Not authenticated.");
 
-  // CHANGED: /api/conversations -> /conversations
-  const response = await fetch(getUrl(`/conversations/${conversationId}`), {
+  // This calls https://.../api/conversations/{id}/
+  const response = await fetch(getUrl(`/api/conversations/${conversationId}`), {
     method: "GET",
     headers: { "Authorization": `Bearer ${token}` }
   });
