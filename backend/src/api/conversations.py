@@ -13,8 +13,8 @@ from ..models.user import User
 from ..models.conversation import Conversation
 from ..models.message import Message, MessageRole
 
-
-router = APIRouter(prefix="/conversations", tags=["conversations"])
+# FIX: REMOVED prefix="/conversations" so it doesn't double up with main.py
+router = APIRouter(tags=["conversations"])
 
 
 class ConversationSummary(BaseModel):
@@ -41,24 +41,14 @@ class ConversationDetail(BaseModel):
     messages: List[MessageResponse]
 
 
-@router.get("", response_model=List[ConversationSummary])
+@router.get("/", response_model=List[ConversationSummary])
 async def list_conversations(
     current_user: User = Depends(get_user_from_jwt),
     db: AsyncSession = Depends(get_session),
     limit: int = 20,
     offset: int = 0
 ):
-    """List all conversations for the authenticated user.
-
-    Args:
-        current_user: Authenticated user from JWT
-        db: Database session
-        limit: Maximum number of conversations to return
-        offset: Number of conversations to skip (pagination)
-
-    Returns:
-        List of conversation summaries ordered by most recent
-    """
+    """List all conversations for the authenticated user."""
     from ..services.conversation_service import ConversationService
     from ..services.message_service import MessageService
 
@@ -81,25 +71,13 @@ async def list_conversations(
     return summaries
 
 
-@router.get("/{conversation_id}", response_model=ConversationDetail)
+@router.get("/{conversation_id}/", response_model=ConversationDetail)
 async def get_conversation(
     conversation_id: UUID,
     current_user: User = Depends(get_user_from_jwt),
     db: AsyncSession = Depends(get_session),
 ):
-    """Get a specific conversation with all messages.
-
-    Args:
-        conversation_id: UUID of the conversation
-        current_user: Authenticated user from JWT
-        db: Database session
-
-    Returns:
-        Conversation detail with all messages
-
-    Raises:
-        HTTPException: 404 if conversation not found or doesn't belong to user
-    """
+    """Get a specific conversation with all messages."""
     from ..services.conversation_service import ConversationService
     from ..services.message_service import MessageService
 
@@ -116,7 +94,7 @@ async def get_conversation(
 
     # Get all messages for conversation
     messages = await MessageService.get_messages_by_conversation(
-        db, conversation_id, limit=1000  # Get all messages for detail view
+        db, conversation_id, limit=1000
     )
 
     # Build response

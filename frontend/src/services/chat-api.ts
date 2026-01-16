@@ -1,35 +1,46 @@
 /**
- * Chat API client - Fixed to match Backend main.py prefixes
+ * Chat API client - Final Version
+ * Fixed for HTTPS, Trailing Slashes, and Unified Prefixes
  */
 import { ChatRequest, ChatResponse, Conversation, ConversationDetail } from "@/types/chat";
 
+// Ensure this is HTTPS to avoid "Mixed Content" browser blocks
 const API_BASE_URL = "https://janabkakarot-todo-console-application-phase-iii.hf.space";
 
 function getAuthToken(): string | null {
   if (typeof window === "undefined") return null;
+  // Ensure this matches the key used in client-auth.ts
   return localStorage.getItem("auth_token");
 }
 
 const getUrl = (path: string) => {
-  const cleanBase = API_BASE_URL.replace(/\/$/, ""); 
+  // 1. Force use of HTTPS and remove any trailing slash from base
+  const cleanBase = API_BASE_URL.replace(/\/$/, "").replace("http://", "https://");
+  
+  // 2. Ensure path starts with a slash
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   
-  // Ensure trailing slash BEFORE query parameters
-  const baseWithSlash = cleanPath.includes('?') 
-    ? cleanPath.replace('?', '/?') 
-    : cleanPath.endsWith('/') ? cleanPath : `${cleanPath}/`;
+  // 3. Force trailing slash BEFORE query parameters to satisfy FastAPI
+  // Example: /api/chat -> /api/chat/
+  // Example: /api/conversations?limit=20 -> /api/conversations/?limit=20
+  let finalPath = cleanPath;
+  if (cleanPath.includes('?')) {
+    finalPath = cleanPath.replace('?', '/?');
+  } else {
+    finalPath = cleanPath.endsWith('/') ? cleanPath : `${cleanPath}/`;
+  }
     
-  return `${cleanBase}${baseWithSlash}`;
+  return `${cleanBase}${finalPath}`;
 };
 
 /**
- * Send a message - ADDED /api prefix back
+ * Send a message to the AI chatbot
  */
 export async function sendMessage(request: ChatRequest): Promise<ChatResponse> {
   const token = getAuthToken();
   if (!token) throw new Error("Not authenticated.");
 
-  // This calls https://.../api/chat/
+  // Hits: https://.../api/chat/
   const response = await fetch(getUrl('/api/chat'), {
     method: "POST",
     headers: {
@@ -40,20 +51,21 @@ export async function sendMessage(request: ChatRequest): Promise<ChatResponse> {
   });
 
   if (!response.ok) {
-    throw new Error("Chat failed. Check if backend is awake.");
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Chat failed. Check backend logs.");
   }
 
   return response.json();
 }
 
 /**
- * List conversations - ADDED /api prefix back
+ * List all conversations for the authenticated user
  */
 export async function listConversations(limit: number = 20, offset: number = 0): Promise<Conversation[]> {
   const token = getAuthToken();
   if (!token) throw new Error("Not authenticated.");
 
-  // This calls https://.../api/conversations/
+  // Hits: https://.../api/conversations/?limit=20&offset=0
   const response = await fetch(getUrl(`/api/conversations?limit=${limit}&offset=${offset}`), {
     method: "GET",
     headers: { "Authorization": `Bearer ${token}` }
@@ -64,13 +76,13 @@ export async function listConversations(limit: number = 20, offset: number = 0):
 }
 
 /**
- * Get conversation detail - ADDED /api prefix back
+ * Get a specific conversation with all messages
  */
 export async function getConversation(conversationId: string): Promise<ConversationDetail> {
   const token = getAuthToken();
   if (!token) throw new Error("Not authenticated.");
 
-  // This calls https://.../api/conversations/{id}/
+  // Hits: https://.../api/conversations/{id}/
   const response = await fetch(getUrl(`/api/conversations/${conversationId}`), {
     method: "GET",
     headers: { "Authorization": `Bearer ${token}` }
