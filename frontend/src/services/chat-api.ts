@@ -4,7 +4,6 @@
  */
 import { ChatRequest, ChatResponse, Conversation, ConversationDetail } from "@/types/chat";
 
-// FORCE HTTPS to prevent browser "Mixed Content" blocks
 const API_BASE_URL = "https://janabkakarot-todo-console-application-phase-iii.hf.space";
 
 function getAuthToken(): string | null {
@@ -12,32 +11,23 @@ function getAuthToken(): string | null {
   return localStorage.getItem("auth_token");
 }
 
-/**
- * Smart URL builder to satisfy FastAPI's strict trailing slash requirements
- */
 const getUrl = (path: string) => {
   const cleanBase = API_BASE_URL.replace(/\/$/, "");
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
 
-  // Handle Query Parameters (e.g., /api/conversations/?limit=20)
   if (cleanPath.includes('?')) {
     const [route, query] = cleanPath.split('?');
     const routeWithSlash = route.endsWith('/') ? route : `${route}/`;
     return `${cleanBase}${routeWithSlash}?${query}`;
   }
 
-  // Handle Chat POST (Match backend chat.py @router.post(""))
   if (cleanPath === '/api/chat') {
     return `${cleanBase}${cleanPath}`; 
   }
 
-  // Default: Add trailing slash for GET requests
   return `${cleanBase}${cleanPath.endsWith('/') ? cleanPath : cleanPath + '/'}`;
 };
 
-/**
- * Send a message - Robust error handling for Free Tier Rate Limits
- */
 export async function sendMessage(request: ChatRequest): Promise<ChatResponse> {
   const token = getAuthToken();
   if (!token) throw new Error("Please log in to chat.");
@@ -53,24 +43,20 @@ export async function sendMessage(request: ChatRequest): Promise<ChatResponse> {
     });
 
     if (response.status === 429) {
-      throw new Error("The AI is currently busy (Free Tier limit). Please wait 30 seconds and try again.");
+      throw new Error("The AI is currently busy (Free Tier limit). Please wait 30 seconds.");
     }
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.detail || "The AI encountered an error. Please try a shorter message.");
+      throw new Error(errorData.detail || "AI error occurred.");
     }
 
     return await response.json();
   } catch (error: any) {
-    // Catch network errors or the thrown errors above
-    throw new Error(error.message || "Could not connect to the AI server.");
+    throw new Error(error.message || "Connection failed.");
   }
 }
 
-/**
- * List conversations - Silent fail (returns empty array) on error
- */
 export async function listConversations(limit: number = 20, offset: number = 0): Promise<Conversation[]> {
   const token = getAuthToken();
   if (!token) return [];
@@ -84,14 +70,10 @@ export async function listConversations(limit: number = 20, offset: number = 0):
     if (!response.ok) return [];
     return await response.json();
   } catch (err) {
-    console.error("Sidebar load failed:", err);
     return [];
   }
 }
 
-/**
- * Get conversation history
- */
 export async function getConversation(conversationId: string): Promise<ConversationDetail> {
   const token = getAuthToken();
   if (!token) throw new Error("Session expired.");
