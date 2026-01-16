@@ -47,12 +47,14 @@ class AuthService {
         }
     }
 
-    logout() {
-        if (typeof window === 'undefined') return;
-        localStorage.removeItem(this.tokenKey);
-        localStorage.removeItem('user');
-        window.location.href = '/login';
-    }
+ logout() {
+    if (typeof window === 'undefined') return;
+    localStorage.removeItem(this.tokenKey);
+    localStorage.removeItem('user');
+    
+    // CHANGE THIS from '/login' to '/'
+    window.location.href = '/'; 
+}
 
     async login(data: UserLogin): Promise<AuthResponse> {
         const response = await fetch(getUrl('/api/auth/login'), {
