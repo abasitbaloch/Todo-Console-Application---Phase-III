@@ -1,13 +1,12 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { authService } from '../../lib/client-auth';
 import { api } from '../../lib/api';
 import { User, Task } from '@/lib/types';
 import TaskList from '@/components/TaskList';
 import TaskForm from '@/components/TaskForm';
-// 1. IMPORT YOUR CHAT INTERFACE
 import ChatInterface from '@/components/chat/ChatInterface'; 
 
 export default function Dashboard() {
@@ -16,12 +15,22 @@ export default function Dashboard() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // 1. Function to fetch tasks (extracted so it can be reused)
+  const refreshTasks = useCallback(async () => {
+    try {
+      const fetchedTasks = await api.getTasks();
+      setTasks(fetchedTasks || []);
+    } catch (error) {
+      console.error('Failed to fetch tasks:', error);
+    }
+  }, []);
+
   useEffect(() => {
     const initDashboard = async () => {
       try {
         const token = authService.getToken();
         if (!token) {
-          router.push('/'); // Redirect to root (login)
+          router.push('/');
           return;
         }
 
@@ -37,8 +46,7 @@ export default function Dashboard() {
         }
 
         setUser(currentUser);
-        const fetchedTasks = await api.getTasks();
-        setTasks(fetchedTasks || []);
+        await refreshTasks(); // Initial load
         
       } catch (error) {
         console.error('Dashboard init failed:', error);
@@ -48,13 +56,13 @@ export default function Dashboard() {
     };
 
     initDashboard();
-  }, [router]);
+  }, [router, refreshTasks]);
 
   // Task Handlers
   const handleCreateTask = async (title: string, description: string) => {
     try {
       const newTask = await api.createTask(title, description);
-      setTasks(prev => [...prev, newTask]);
+      setTasks(prev => [newTask, ...prev]);
     } catch (error) {
       alert('Failed to create task.');
     }
@@ -62,8 +70,9 @@ export default function Dashboard() {
 
   const handleUpdateTask = async (taskId: string, is_completed: boolean) => {
     try {
+      // Use the checkbox fix: ensure URL has trailing slash in api.ts
       const updatedTask = await api.updateTask(taskId, { is_completed });
-      setTasks(tasks.map(t => (t.id === taskId ? updatedTask : t)));
+      setTasks(prev => prev.map(t => (t.id === taskId ? updatedTask : t)));
     } catch (error) {
       console.error('Update failed:', error);
     }
@@ -73,7 +82,7 @@ export default function Dashboard() {
     if (!confirm('Delete this task?')) return;
     try {
       await api.deleteTask(taskId);
-      setTasks(tasks.filter(t => t.id !== taskId));
+      setTasks(prev => prev.filter(t => t.id !== taskId));
     } catch (error) {
       console.error('Delete failed:', error);
     }
@@ -89,9 +98,9 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col">
+    <div className="min-h-screen bg-gray-100 flex flex-col h-screen overflow-hidden">
       {/* Navigation Bar */}
-      <nav className="bg-white shadow-sm p-4 border-b border-gray-200">
+      <nav className="bg-white shadow-sm p-4 border-b border-gray-200 shrink-0">
         <div className="max-w-[1600px] mx-auto flex justify-between items-center">
           <div className="flex items-center gap-2">
             <span className="text-2xl">🤖</span>
@@ -112,32 +121,36 @@ export default function Dashboard() {
       {/* Main Responsive Grid */}
       <main className="flex-1 max-w-[1600px] mx-auto w-full p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 overflow-hidden">
         
-        {/* Left Column: Task Creator (Lg: 3/12) */}
-        <div className="lg:col-span-3 space-y-6">
+        {/* Left Column: Task Creator */}
+        <div className="lg:col-span-3 space-y-6 overflow-y-auto">
           <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
             <h2 className="text-md font-bold mb-4 text-gray-700 uppercase tracking-wider">New Task</h2>
             <TaskForm onSubmit={handleCreateTask} />
           </div>
         </div>
 
-        {/* Center Column: Task List (Lg: 5/12) */}
-        <div className="lg:col-span-5 flex flex-col overflow-hidden">
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 flex-1 overflow-y-auto">
-            <h2 className="text-md font-bold mb-4 text-gray-700 uppercase tracking-wider">Your Tasks ({tasks.length})</h2>
-            {tasks.length === 0 ? (
-              <div className="text-center py-10 text-gray-400">No tasks yet.</div>
-            ) : (
-              <TaskList tasks={tasks} onToggle={handleUpdateTask} onDelete={handleDeleteTask} />
-            )}
+        {/* Center Column: Task List */}
+        <div className="lg:col-span-4 flex flex-col overflow-hidden">
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 flex-1 flex flex-col overflow-hidden">
+            <h2 className="text-md font-bold mb-4 text-gray-700 uppercase tracking-wider shrink-0">
+               Your Tasks ({tasks.length})
+            </h2>
+            <div className="flex-1 overflow-y-auto pr-2">
+              {tasks.length === 0 ? (
+                <div className="text-center py-10 text-gray-400">No tasks yet.</div>
+              ) : (
+                <TaskList tasks={tasks} onToggle={handleUpdateTask} onDelete={handleDeleteTask} />
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Right Column: AI Chatbot (Lg: 4/12) */}
-        <div className="lg:col-span-4 flex flex-col h-[600px] lg:h-full overflow-hidden">
-           <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex-1 overflow-hidden flex flex-col">
-              {/* THE CHAT INTERFACE GOES HERE */}
-              <ChatInterface /> 
-           </div>
+        {/* Right Column: AI Chatbot */}
+        <div className="lg:col-span-5 flex flex-col overflow-hidden h-full">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex-1 overflow-hidden flex flex-col">
+              {/* 2. PASS REFRESH FUNCTION TO CHAT */}
+              <ChatInterface onTaskCreated={refreshTasks} /> 
+            </div>
         </div>
         
       </main>

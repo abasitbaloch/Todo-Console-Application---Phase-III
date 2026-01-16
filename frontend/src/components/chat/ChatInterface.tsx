@@ -1,5 +1,5 @@
 /**
- * ChatInterface component - main chat UI container with conversation history
+ * ChatInterface component - Fixed for Phase III Task Sync
  */
 
 "use client";
@@ -11,7 +11,12 @@ import ConversationList from "./ConversationList";
 import { Message, MessageRole } from "@/types/chat";
 import { sendMessage, getConversation } from "@/services/chat-api";
 
-export default function ChatInterface() {
+// 1. Define the props to accept the refresh trigger from the Dashboard
+interface ChatInterfaceProps {
+  onTaskCreated?: () => void;
+}
+
+export default function ChatInterface({ onTaskCreated }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -19,7 +24,7 @@ export default function ChatInterface() {
   const [showSidebar, setShowSidebar] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom when new messages arrive
+  // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -28,7 +33,6 @@ export default function ChatInterface() {
     setIsLoading(true);
     setError(null);
 
-    // Add user message to UI immediately
     const userMessage: Message = {
       id: `temp-${Date.now()}`,
       role: MessageRole.USER,
@@ -38,18 +42,15 @@ export default function ChatInterface() {
     setMessages((prev) => [...prev, userMessage]);
 
     try {
-      // Send message to backend
       const response = await sendMessage({
         conversation_id: conversationId,
         message: messageText
       });
 
-      // Update conversation ID if this was the first message
       if (!conversationId) {
         setConversationId(response.conversation_id);
       }
 
-      // Add assistant response to UI
       const assistantMessage: Message = {
         id: `response-${Date.now()}`,
         role: MessageRole.ASSISTANT,
@@ -57,12 +58,19 @@ export default function ChatInterface() {
         created_at: new Date().toISOString(),
         tool_calls: response.tool_calls
       };
+      
       setMessages((prev) => [...prev, assistantMessage]);
+
+      // 2. CRITICAL FIX: If the AI response contains tool_calls, 
+      // it means a task was likely added, deleted, or updated.
+      // We trigger the refresh in the Dashboard!
+      if (response.tool_calls && response.tool_calls.length > 0 && onTaskCreated) {
+        console.log("Tool call detected, refreshing task list...");
+        onTaskCreated();
+      }
 
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send message");
-
-      // Add error message to UI
       const errorMessage: Message = {
         id: `error-${Date.now()}`,
         role: MessageRole.SYSTEM,
@@ -84,12 +92,8 @@ export default function ChatInterface() {
   const handleSelectConversation = async (selectedConversationId: string) => {
     setIsLoading(true);
     setError(null);
-
     try {
-      // Fetch conversation history
       const conversation = await getConversation(selectedConversationId);
-
-      // Update state
       setConversationId(selectedConversationId);
       setMessages(conversation.messages);
     } catch (err) {
@@ -100,7 +104,7 @@ export default function ChatInterface() {
   };
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-full bg-gray-50 overflow-hidden">
       {/* Sidebar */}
       {showSidebar && (
         <ConversationList
@@ -111,9 +115,9 @@ export default function ChatInterface() {
       )}
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Header */}
-        <div className="bg-white border-b border-gray-300 p-4 flex justify-between items-center">
+        <div className="bg-white border-b border-gray-300 p-4 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-4">
             <button
               onClick={() => setShowSidebar(!showSidebar)}
@@ -137,15 +141,14 @@ export default function ChatInterface() {
         </div>
 
         {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-500">
               <div className="text-6xl mb-4">💬</div>
-              <h2 className="text-2xl font-semibold mb-2">Welcome to AI Todo Assistant</h2>
-             <p className="text-center max-w-md">
-  Start a conversation to manage your tasks with natural language.
-  Try saying &quot;Add a task to buy groceries&quot; or &quot;Show me my tasks&quot;.
-</p>  
+              <h2 className="text-2xl font-semibold mb-2">Welcome</h2>
+              <p className="text-center max-w-md">
+                Try saying &quot;Add a task to play football&quot;.
+              </p>
             </div>
           ) : (
             <>
@@ -159,14 +162,15 @@ export default function ChatInterface() {
 
         {/* Error Display */}
         {error && (
-          <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mx-4 mb-4">
-            <p className="font-bold">Error</p>
+          <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mx-4 mb-4 shrink-0">
             <p>{error}</p>
           </div>
         )}
 
         {/* Input Area */}
-        <ChatInput onSendMessage={handleSendMessage} disabled={isLoading} />
+        <div className="shrink-0">
+            <ChatInput onSendMessage={handleSendMessage} disabled={isLoading} />
+        </div>
       </div>
     </div>
   );
