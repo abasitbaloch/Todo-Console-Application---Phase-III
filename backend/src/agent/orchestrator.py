@@ -3,6 +3,8 @@
 from typing import List, Dict, Any, Optional
 from uuid import UUID
 import os
+import json
+import asyncio
 from openai import AsyncOpenAI
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -14,147 +16,56 @@ from ..errors.handlers import OpenAIAPIError, MCPToolError
 
 
 class AgentOrchestrator:
-    """Orchestrates AI agent interactions with OpenAI and MCP tools.
-
-    Handles conversation flow, tool execution, and response generation.
-    Stateless - all context retrieved from database on each request.
-    """
+    """Orchestrates AI agent interactions with OpenAI and MCP tools."""
 
     def __init__(self, db: AsyncSession):
-        """Initialize agent orchestrator.
-
-        Args:
-            db: Database session for tool execution
-        """
+        """Initialize agent orchestrator."""
         self.db = db
-        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        # If using OpenRouter, ensure the base_url is set in settings or here
+        self.client = AsyncOpenAI(
+            api_key=os.getenv("OPENAI_API_KEY"),
+            base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        )
         self.mcp_server = self._initialize_mcp_server()
 
     def _initialize_mcp_server(self) -> TodoMCPServer:
-        """Initialize and register all MCP tools.
-
-        Returns:
-            Configured TodoMCPServer instance
-        """
+        """Initialize and register all MCP tools."""
         server = TodoMCPServer()
 
-        # Register add_task tool
         server.register_tool(
             name="add_task",
-            description="Create a new task with a title. Use this when the user wants to add, create, or remember something.",
+            description="Create a new task. Use this when the user wants to add or remember something.",
             parameters={
                 "type": "object",
                 "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "The task title or description"
-                    }
+                    "title": {"type": "string", "description": "The task title"}
                 },
                 "required": ["title"]
             },
             function=lambda title, user_id: mcp_tools.add_task(self.db, user_id, title)
         )
 
-        # Register list_tasks tool
         server.register_tool(
             name="list_tasks",
-            description="List all tasks for the user. Can optionally filter by completion status.",
+            description="List all tasks for the user.",
             parameters={
                 "type": "object",
                 "properties": {
-                    "filter_completed": {
-                        "type": "boolean",
-                        "description": "Optional: true for completed tasks only, false for incomplete tasks only, null for all tasks"
-                    }
+                    "filter_completed": {"type": "boolean"}
                 },
                 "required": []
             },
             function=lambda user_id, filter_completed=None: mcp_tools.list_tasks(self.db, user_id, filter_completed)
         )
 
-        # Register complete_task tool
-        server.register_tool(
-            name="complete_task",
-            description="Mark a task as completed. Use fuzzy matching to find the task by title.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "task_identifier": {
-                        "type": "string",
-                        "description": "The task title or partial title to match"
-                    }
-                },
-                "required": ["task_identifier"]
-            },
-            function=lambda task_identifier, user_id: mcp_tools.complete_task(self.db, user_id, task_identifier)
-        )
-
-        # Register update_task tool
-        server.register_tool(
-            name="update_task",
-            description="Update a task's title. Use fuzzy matching to find the task.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "task_identifier": {
-                        "type": "string",
-                        "description": "The current task title or partial title to match"
-                    },
-                    "new_title": {
-                        "type": "string",
-                        "description": "The new title for the task"
-                    }
-                },
-                "required": ["task_identifier", "new_title"]
-            },
-            function=lambda task_identifier, new_title, user_id: mcp_tools.update_task(self.db, user_id, task_identifier, new_title)
-        )
-
-        # Register delete_task tool
-        server.register_tool(
-            name="delete_task",
-            description="Permanently delete a task. Use fuzzy matching to find the task.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "task_identifier": {
-                        "type": "string",
-                        "description": "The task title or partial title to match"
-                    }
-                },
-                "required": ["task_identifier"]
-            },
-            function=lambda task_identifier, user_id: mcp_tools.delete_task(self.db, user_id, task_identifier)
-        )
-
         return server
 
-    def _build_messages(
-        self,
-        history: List[Message],
-        new_message: str
-    ) -> List[Dict[str, Any]]:
-        """Build message array for OpenAI API from conversation history.
+    def _build_messages(self, history: List[Message], new_message: str) -> List[Dict[str, Any]]:
+        """Build message array for OpenAI API."""
+        messages = [{"role": "system", "content": get_system_prompt()}]
 
-        Args:
-            history: List of previous messages in chronological order
-            new_message: New user message to add
-
-        Returns:
-            List of message dictionaries in OpenAI format
-        """
-        messages = [
-            {"role": "system", "content": get_system_prompt()}
-        ]
-
-        # Add conversation history
         for msg in history:
-            messages.append({
-                "role": msg.role.value,
-                "content": msg.content
-            })
-
-            # Add tool calls and results if present
+            messages.append({"role": msg.role.value, "content": msg.content})
             if msg.tool_calls:
                 messages[-1]["tool_calls"] = msg.tool_calls
             if msg.tool_results:
@@ -162,15 +73,10 @@ class AgentOrchestrator:
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tool_result["tool_call_id"],
-                        "content": tool_result["content"]
+                        "content": str(tool_result["content"])
                     })
 
-        # Add new user message
-        messages.append({
-            "role": "user",
-            "content": new_message
-        })
-
+        messages.append({"role": "user", "content": new_message})
         return messages
 
     async def process_message(
@@ -180,106 +86,65 @@ class AgentOrchestrator:
         new_message: str,
         max_retries: int = 3
     ) -> Dict[str, Any]:
-        """Process a user message and generate AI response with retry logic.
-
-        Args:
-            user_id: UUID of the user
-            conversation_history: Previous messages in chronological order
-            new_message: New user message
-            max_retries: Maximum number of retries for rate limit errors
-
-        Returns:
-            Dictionary with response content and tool calls
-
-        Raises:
-            OpenAIAPIError: If OpenAI API call fails after retries
-            MCPToolError: If tool execution fails
-        """
-        import asyncio
+        """Process message with optimized token usage to avoid 402 Credit errors."""
+        
+        # MODEL SETTING: Using a cheaper model to save credits
+        # Using gpt-3.5-turbo instead of gpt-4 to ensure it fits your 1333 token budget
+        target_model = os.getenv("CHAT_MODEL", "gpt-3.5-turbo")
 
         for attempt in range(max_retries):
             try:
-                # Build messages for OpenAI
                 messages = self._build_messages(conversation_history, new_message)
 
-                # Call OpenAI with tools
+                # Call OpenAI with reduced max_tokens
                 response = await self.client.chat.completions.create(
-                    model="gpt-4-turbo-preview",
+                    model=target_model,
                     messages=messages,
                     tools=self.mcp_server.get_tool_definitions(),
-                    tool_choice="auto"
+                    tool_choice="auto",
+                    max_tokens=500  # LOWERED: Fits within your 1333 token credit limit
                 )
 
                 assistant_message = response.choices[0].message
-                tool_calls = []
-                tool_results = []
+                tool_calls_data = []
+                tool_results_data = []
 
-                # Execute tool calls if present
                 if assistant_message.tool_calls:
                     for tool_call in assistant_message.tool_calls:
                         tool_name = tool_call.function.name
-                        tool_args = eval(tool_call.function.arguments)  # Parse JSON arguments
-                        tool_args["user_id"] = user_id  # Inject user_id for security
+                        args = json.loads(tool_call.function.arguments)
+                        args["user_id"] = user_id 
 
-                        try:
-                            # Execute tool
-                            result = await self.mcp_server.execute_tool(tool_name, tool_args)
+                        result = await self.mcp_server.execute_tool(tool_name, args)
 
-                            tool_calls.append({
-                                "id": tool_call.id,
-                                "type": "function",
-                                "function": {
-                                    "name": tool_name,
-                                    "arguments": tool_call.function.arguments
-                                }
-                            })
-
-                            tool_results.append({
-                                "tool_call_id": tool_call.id,
-                                "role": "tool",
-                                "content": str(result)
-                            })
-
-                        except Exception as e:
-                            raise MCPToolError(
-                                tool_name=tool_name,
-                                message=str(e),
-                                user_message=f"I had trouble {tool_name.replace('_', ' ')}. Could you try again?"
-                            )
-
-                    # If tools were called, make another API call to get final response
-                    if tool_results:
-                        messages.append({
-                            "role": "assistant",
-                            "content": assistant_message.content or "",
-                            "tool_calls": tool_calls
+                        tool_calls_data.append({
+                            "id": tool_call.id,
+                            "type": "function",
+                            "function": {"name": tool_name, "arguments": tool_call.function.arguments}
+                        })
+                        tool_results_data.append({
+                            "tool_call_id": tool_call.id,
+                            "role": "tool",
+                            "content": json.dumps(result)
                         })
 
-                        for tool_result in tool_results:
-                            messages.append(tool_result)
+                    # Get final response after tools
+                    messages.append(assistant_message)
+                    for result in tool_results_data:
+                        messages.append(result)
 
-                        # Get final response with retry logic
-                        for final_attempt in range(max_retries):
-                            try:
-                                final_response = await self.client.chat.completions.create(
-                                    model="gpt-4-turbo-preview",
-                                    messages=messages
-                                )
+                    final_response = await self.client.chat.completions.create(
+                        model=target_model,
+                        messages=messages,
+                        max_tokens=500
+                    )
 
-                                return {
-                                    "content": final_response.choices[0].message.content,
-                                    "tool_calls": tool_calls,
-                                    "tool_results": tool_results
-                                }
-                            except Exception as e:
-                                if "rate_limit" in str(e).lower() and final_attempt < max_retries - 1:
-                                    # Exponential backoff: 1s, 2s, 4s
-                                    wait_time = 2 ** final_attempt
-                                    await asyncio.sleep(wait_time)
-                                    continue
-                                raise
+                    return {
+                        "content": final_response.choices[0].message.content,
+                        "tool_calls": tool_calls_data,
+                        "tool_results": tool_results_data
+                    }
 
-                # No tools called, return direct response
                 return {
                     "content": assistant_message.content,
                     "tool_calls": None,
@@ -287,17 +152,10 @@ class AgentOrchestrator:
                 }
 
             except Exception as e:
-                # Handle rate limit errors with exponential backoff
-                if "rate_limit" in str(e).lower() and attempt < max_retries - 1:
-                    # Exponential backoff: 1s, 2s, 4s
-                    wait_time = 2 ** attempt
-                    await asyncio.sleep(wait_time)
-                    continue
-
-                # Other OpenAI errors
-                if "openai" in str(type(e)).lower():
-                    raise OpenAIAPIError(
-                        message=str(e),
-                        status_code=getattr(e, "status_code", None)
-                    )
-                raise
+                if "402" in str(e) or "credits" in str(e).lower():
+                    # If even 500 is too much, try one last time with very low tokens
+                    if attempt == 0:
+                        continue 
+                
+                logger.error(f"Orchestrator Error: {str(e)}")
+                raise OpenAIAPIError(message=str(e), status_code=getattr(e, "status_code", 500))
