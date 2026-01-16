@@ -15,7 +15,7 @@ from ..mcp import tools as mcp_tools
 from ..agent.prompts import get_system_prompt
 from ..errors.handlers import OpenAIAPIError, MCPToolError
 
-# Configure logging for debugging AI behavior
+# Configure logging
 logger = logging.getLogger(__name__)
 
 class AgentOrchestrator:
@@ -63,7 +63,7 @@ class AgentOrchestrator:
             function=lambda user_id, filter_completed=None: mcp_tools.list_tasks(self.db, user_id, filter_completed)
         )
 
-        # Tool 3: Delete Task (Newly Added)
+        # Tool 3: Delete Task
         server.register_tool(
             name="delete_task",
             description="Delete a task by searching for its title.",
@@ -83,8 +83,8 @@ class AgentOrchestrator:
         """Build message array for OpenRouter API, optimized for Free Tier limits."""
         messages = [{"role": "system", "content": get_system_prompt()}]
 
-        # Keep context small (last 10 messages) to avoid token limit errors
-        for msg in history[-10:]:
+        # Keep context small (last 5 messages) to avoid token limit errors
+        for msg in history[-5:]:
             messages.append({"role": msg.role.value, "content": msg.content})
             if msg.tool_calls:
                 messages[-1]["tool_calls"] = msg.tool_calls
@@ -104,23 +104,29 @@ class AgentOrchestrator:
         user_id: UUID,
         conversation_history: List[Message],
         new_message: str,
-        max_retries: int = 3
+        max_retries: int = 2
     ) -> Dict[str, Any]:
-        """Process message with optimized logic for Free models and tool handling."""
+        """Process message with Fallback logic to handle Rate Limiting."""
         
-        target_model = os.getenv("CHAT_MODEL", "google/gemini-2.0-flash-exp:free")
+        # Priority list of free models to try
+        models_to_try = [
+            os.getenv("CHAT_MODEL", "google/gemini-2.0-flash-exp:free"),
+            "mistralai/mistral-7b-instruct:free",
+            "openrouter/auto"
+        ]
 
-        for attempt in range(max_retries):
+        last_error = None
+        for target_model in models_to_try:
             try:
                 messages = self._build_messages(conversation_history, new_message)
 
-                # API Call 1: Get initial response or tool calls
+                # API Call 1
                 response = await self.client.chat.completions.create(
                     model=target_model,
                     messages=messages,
                     tools=self.mcp_server.get_tool_definitions(),
                     tool_choice="auto",
-                    max_tokens=512, # Low limit for free tier
+                    max_tokens=450, # Safer low limit
                     extra_headers={
                         "HTTP-Referer": "https://vercel.app", 
                         "X-Title": "Todo AI Assistant"
@@ -135,16 +141,12 @@ class AgentOrchestrator:
                     for tool_call in assistant_message.tool_calls:
                         tool_name = tool_call.function.name
                         
-                        # SAFE JSON PARSING
                         try:
                             args = json.loads(tool_call.function.arguments)
                         except json.JSONDecodeError:
-                            logger.error(f"AI provided invalid JSON for tool: {tool_name}")
                             continue
 
                         args["user_id"] = user_id 
-
-                        # Execute the tool
                         result = await self.mcp_server.execute_tool(tool_name, args)
 
                         tool_calls_data.append({
@@ -158,7 +160,7 @@ class AgentOrchestrator:
                             "content": json.dumps(result)
                         })
 
-                    # If tools were used, call the AI again to get the final text response
+                    # Final pass after tools
                     messages.append(assistant_message)
                     for result in tool_results_data:
                         messages.append(result)
@@ -166,7 +168,7 @@ class AgentOrchestrator:
                     final_response = await self.client.chat.completions.create(
                         model=target_model,
                         messages=messages,
-                        max_tokens=512
+                        max_tokens=450
                     )
 
                     return {
@@ -175,7 +177,6 @@ class AgentOrchestrator:
                         "tool_results": tool_results_data
                     }
 
-                # Direct response if no tools were called
                 return {
                     "content": assistant_message.content,
                     "tool_calls": None,
@@ -183,10 +184,10 @@ class AgentOrchestrator:
                 }
 
             except Exception as e:
-                # Handle rate limits or temporary free tier blocks
-                if ("429" in str(e) or "limit" in str(e).lower()) and attempt < max_retries - 1:
-                    await asyncio.sleep(2 ** attempt) # Backoff
-                    continue
-                
-                logger.error(f"Final Orchestrator Failure: {str(e)}")
-                raise OpenAIAPIError(message=str(e), status_code=getattr(e, "status_code", 500))
+                last_error = e
+                logger.warning(f"Model {target_model} failed (Rate Limit). Trying next...")
+                await asyncio.sleep(1) # Wait before trying next model
+                continue
+        
+        # If all models in the fallback list fail
+        raise OpenAIAPIError(message=f"All models busy: {str(last_error)}", status_code=429)
