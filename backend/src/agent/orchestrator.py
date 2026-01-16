@@ -1,4 +1,4 @@
-"""Agent orchestrator for AI chatbot."""
+"""Agent orchestrator for AI chatbot - Optimized for Free OpenRouter Models."""
 
 from typing import List, Dict, Any, Optional
 from uuid import UUID
@@ -16,15 +16,15 @@ from ..errors.handlers import OpenAIAPIError, MCPToolError
 
 
 class AgentOrchestrator:
-    """Orchestrates AI agent interactions with OpenAI and MCP tools."""
+    """Orchestrates AI agent interactions with OpenRouter Free Models."""
 
     def __init__(self, db: AsyncSession):
         """Initialize agent orchestrator."""
         self.db = db
-        # If using OpenRouter, ensure the base_url is set in settings or here
+        # OpenRouter requires a specific base_url
         self.client = AsyncOpenAI(
             api_key=os.getenv("OPENAI_API_KEY"),
-            base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+            base_url="https://openrouter.ai/api/v1"
         )
         self.mcp_server = self._initialize_mcp_server()
 
@@ -32,9 +32,10 @@ class AgentOrchestrator:
         """Initialize and register all MCP tools."""
         server = TodoMCPServer()
 
+        # Tool: Add Task
         server.register_tool(
             name="add_task",
-            description="Create a new task. Use this when the user wants to add or remember something.",
+            description="Create a new task. Use this when the user wants to add something.",
             parameters={
                 "type": "object",
                 "properties": {
@@ -45,6 +46,7 @@ class AgentOrchestrator:
             function=lambda title, user_id: mcp_tools.add_task(self.db, user_id, title)
         )
 
+        # Tool: List Tasks
         server.register_tool(
             name="list_tasks",
             description="List all tasks for the user.",
@@ -61,10 +63,11 @@ class AgentOrchestrator:
         return server
 
     def _build_messages(self, history: List[Message], new_message: str) -> List[Dict[str, Any]]:
-        """Build message array for OpenAI API."""
+        """Build message array for OpenRouter API."""
         messages = [{"role": "system", "content": get_system_prompt()}]
 
-        for msg in history:
+        # Only take the last 10 messages to save tokens (Free Tier limit)
+        for msg in history[-10:]:
             messages.append({"role": msg.role.value, "content": msg.content})
             if msg.tool_calls:
                 messages[-1]["tool_calls"] = msg.tool_calls
@@ -86,29 +89,34 @@ class AgentOrchestrator:
         new_message: str,
         max_retries: int = 3
     ) -> Dict[str, Any]:
-        """Process message with optimized token usage to avoid 402 Credit errors."""
+        """Process message with settings optimized for Free models."""
         
-        # MODEL SETTING: Using a cheaper model to save credits
-        # Using gpt-3.5-turbo instead of gpt-4 to ensure it fits your 1333 token budget
-        target_model = os.getenv("CHAT_MODEL", "gpt-3.5-turbo")
+        # MODEL: Use a reliable FREE model from OpenRouter
+        # You can also use "google/gemini-2.0-flash-exp:free" or "mistralai/mistral-7b-instruct:free"
+        target_model = os.getenv("CHAT_MODEL", "google/gemini-2.0-flash-exp:free")
 
         for attempt in range(max_retries):
             try:
                 messages = self._build_messages(conversation_history, new_message)
 
-                # Call OpenAI with reduced max_tokens
+                # Call OpenRouter with strict token limits
                 response = await self.client.chat.completions.create(
                     model=target_model,
                     messages=messages,
                     tools=self.mcp_server.get_tool_definitions(),
                     tool_choice="auto",
-                    max_tokens=500  # LOWERED: Fits within your 1333 token credit limit
+                    max_tokens=512, # Low token count ensures the "Free" request is accepted
+                    extra_headers={
+                        "HTTP-Referer": "https://vercel.app", # Required by OpenRouter
+                        "X-Title": "Todo AI Assistant"
+                    }
                 )
 
                 assistant_message = response.choices[0].message
                 tool_calls_data = []
                 tool_results_data = []
 
+                # Handle Tool Calls
                 if assistant_message.tool_calls:
                     for tool_call in assistant_message.tool_calls:
                         tool_name = tool_call.function.name
@@ -136,7 +144,7 @@ class AgentOrchestrator:
                     final_response = await self.client.chat.completions.create(
                         model=target_model,
                         messages=messages,
-                        max_tokens=500
+                        max_tokens=512
                     )
 
                     return {
@@ -152,10 +160,9 @@ class AgentOrchestrator:
                 }
 
             except Exception as e:
-                if "402" in str(e) or "credits" in str(e).lower():
-                    # If even 500 is too much, try one last time with very low tokens
-                    if attempt == 0:
-                        continue 
+                # Catch specifically for 402/limit errors and retry once with even smaller context
+                if ("402" in str(e) or "limit" in str(e).lower()) and attempt == 0:
+                    continue
                 
-                logger.error(f"Orchestrator Error: {str(e)}")
+                print(f"Orchestrator Error: {str(e)}")
                 raise OpenAIAPIError(message=str(e), status_code=getattr(e, "status_code", 500))
