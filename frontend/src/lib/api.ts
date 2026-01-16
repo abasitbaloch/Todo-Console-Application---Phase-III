@@ -135,3 +135,5 @@ export const api = {
 // Explicit exports for your ChatInterface
 export const sendMessage = api.sendMessage;
 export const getConversation = api.getConversation;
+
+// v1.0
