@@ -2,17 +2,15 @@
 
 import { User, UserLogin, UserCreate, AuthResponse } from './types';
 
-// 1. Correct the fallback to your Phase 3 URL
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://janabkakarot-todo-console-application-phase-iii.hf.space';
+const BASE_URL = 'https://janabkakarot-todo-console-application-phase-iii.hf.space';
 
 const getUrl = (path: string) => {
-    const cleanBase = BASE_URL.replace(/\/$/, ''); // Remove trailing slash from base
-    const cleanPath = path.startsWith('/') ? path : `/${path}`; // Ensure path starts with /
+    const cleanBase = BASE_URL.replace(/\/$/, '');
+    const cleanPath = path.startsWith('/') ? path : `/${path}`;
     return `${cleanBase}${cleanPath}`;
 };
 
 class AuthService {
-    // 2. Changed to auth_token to match your chat-api.ts
     private tokenKey = 'auth_token';
 
     getToken(): string | null {
@@ -25,12 +23,10 @@ class AuthService {
         localStorage.setItem(this.tokenKey, token);
     }
 
-    // 3. Added missing isAuthenticated for your Layout
     isAuthenticated(): boolean {
         return !!this.getToken();
     }
 
-    // 4. Added missing getCurrentUser for your Dashboard
     async getCurrentUser(): Promise<User | null> {
         const token = this.getToken();
         if (!token) return null;
@@ -47,14 +43,13 @@ class AuthService {
         }
     }
 
- logout() {
-    if (typeof window === 'undefined') return;
-    localStorage.removeItem(this.tokenKey);
-    localStorage.removeItem('user');
-    
-    // CHANGE THIS from '/login' to '/'
-    window.location.href = '/'; 
-}
+    logout() {
+        if (typeof window === 'undefined') return;
+        localStorage.removeItem(this.tokenKey);
+        localStorage.removeItem('user');
+        // FIX: Redirect to root '/' where your AuthForm is
+        window.location.href = '/';
+    }
 
     async login(data: UserLogin): Promise<AuthResponse> {
         const response = await fetch(getUrl('/api/auth/login'), {
@@ -70,7 +65,6 @@ class AuthService {
         
         const result = await response.json();
         this.setToken(result.access_token);
-        // Save user info for the dashboard to use
         localStorage.setItem('user', JSON.stringify(result.user));
         return result;
     }

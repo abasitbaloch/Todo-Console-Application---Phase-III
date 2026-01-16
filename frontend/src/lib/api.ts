@@ -1,14 +1,14 @@
 import { authService } from './client-auth';
 
-// The live backend URL on Hugging Face
-const BASE_URL = 'https://janabkakarot-todo-console-application.hf.space';
+// UPDATED: Added '-phase-iii' to match your actual backend URL
+const BASE_URL = 'https://janabkakarot-todo-console-application-phase-iii.hf.space';
 
 /**
  * Helper to build the correct API URL.
  * FastAPI with the updated tasks.py now expects a trailing slash (e.g., /tasks/)
  */
 const getUrl = (path: string) => {
-  const cleanBase = BASE_URL.replace(/\/$/, ""); // Remove base trailing slash
+  const cleanBase = BASE_URL.replace(/\/$/, ""); 
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   // Ensure the final URL ends with a slash to avoid 307 redirects or 404s
   const finalPath = cleanPath.endsWith('/') ? cleanPath : `${cleanPath}/`;
@@ -30,6 +30,7 @@ export const api = {
     });
 
     if (!response.ok) {
+      // If unauthorized, logout - this now redirects to '/' correctly
       if (response.status === 401) authService.logout();
       throw new Error('Failed to fetch tasks');
     }
@@ -55,18 +56,17 @@ export const api = {
   },
 
   /**
-   * Update task status (completed/pending)
-   * FastAPI expects the task_id in the URL
+   * Update task status
    */
-  async toggleTask(taskId: string, completed: boolean) {
+  async updateTask(taskId: string, data: { is_completed: boolean }) {
     const token = authService.getToken();
     const response = await fetch(getUrl(`/tasks/${taskId}`), {
-      method: 'PUT', // Matches @router.put("/{task_id}") in your tasks.py
+      method: 'PUT',
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ is_completed: completed }),
+      body: JSON.stringify(data),
     });
 
     if (!response.ok) throw new Error('Failed to update task');
@@ -86,7 +86,6 @@ export const api = {
     });
 
     if (!response.ok) throw new Error('Failed to delete task');
-    // DELETE usually returns 204 No Content, no JSON to return
     return true;
   }
 };
