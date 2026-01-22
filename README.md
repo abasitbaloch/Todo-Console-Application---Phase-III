@@ -1,6 +1,4 @@
-# Todo Full-Stack Web Application
-
-Phase II - Full-Stack Todo Application with Next.js and FastAPI
+# Phase III - AI-Powered Todo Application
 
 ## Features
 
@@ -12,6 +10,9 @@ Phase II - Full-Stack Todo Application with Next.js and FastAPI
 - ✅ Responsive UI with Tailwind CSS
 - ✅ Secure password hashing with bcrypt
 - ✅ PostgreSQL database with connection pooling
+- 🤖 AI Chatbot for natural language task management
+- 💬 Context-aware conversations
+- ⚡ Powered by OpenAI and Model Context Protocol (MCP)
 
 ## Tech Stack
 
@@ -30,6 +31,8 @@ Phase II - Full-Stack Todo Application with Next.js and FastAPI
 - **python-jose** - JWT token handling
 - **passlib** - Password hashing
 - **asyncpg** - Async PostgreSQL driver
+- **OpenAI Agents SDK** - AI Orchestration
+- **mcp** - Model Context Protocol SDK
 
 ## Prerequisites
 
@@ -139,7 +142,15 @@ Once the backend is running, visit:
    - ✅ Check/uncheck to mark complete/incomplete
    - 🗑️ Click "Delete" to remove task (with confirmation)
 
-5. **Logout**: Click "Logout" button in navigation
+5. **AI Chatbot**:
+   - Click "Chat" in the navigation
+   - Type commands like:
+     - "Add a task to buy groceries"
+     - "Show me my tasks"
+     - "Mark buy groceries as done"
+     - "Delete the task about milk"
+
+6. **Logout**: Click "Logout" button in navigation
 
 ## Implementation Status
 
@@ -149,6 +160,7 @@ Once the backend is running, visit:
 - Project setup and infrastructure
 - User authentication and authorization
 - Basic task management
+- AI Chatbot with natural language capabilities
 
 ### ✅ Extended Features (Phases 4-5)
 - Full CRUD operations for tasks
@@ -156,9 +168,8 @@ Once the backend is running, visit:
 - Task deletion with confirmation
 
 ### ⏳ Remaining Work
-- **T044-T045**: Inline editing for task title/description
-- **Phase 6**: Enhanced responsive UI and accessibility
-- **Phase 7**: Polish and documentation
+- **Phase 4**: Enhanced responsive UI and accessibility
+- **Phase 5**: Polish and documentation
 
 ## Environment Variables
 
@@ -171,6 +182,9 @@ JWT_ALGORITHM=HS256
 JWT_EXPIRATION_HOURS=24
 CORS_ORIGINS=http://localhost:3000
 ENVIRONMENT=development
+# AI Configuration
+OPENAI_API_KEY=sk-your-openai-api-key-here
+LOG_LEVEL=DEBUG
 ```
 
 ### Frontend (.env.local)
